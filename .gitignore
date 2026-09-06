@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Test and build output
+test-results/
+playwright-report/
+coverage/

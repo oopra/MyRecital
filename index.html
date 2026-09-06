@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MyRecital — text stories into animated shorts</title>
+<meta name="description" content="Paste a story, get an animated vertical short. Edit every scene, then record it as a video you can upload.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0d12'/%3E%3Crect x='11' y='6' width='10' height='20' rx='3' fill='%236ea8ff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">MyRecital</span>
+  </div>
+  <input id="projectTitle" class="title-input" type="text" aria-label="Project title" placeholder="Untitled reel">
+  <div class="topbar-actions">
+    <span id="saveState" class="save-state" role="status" aria-live="polite"></span>
+    <button id="undoBtn" class="btn ghost" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+    <button id="redoBtn" class="btn ghost" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+    <button id="openBtn" class="btn ghost">Open…</button>
+    <button id="saveBtn" class="btn ghost">Save file</button>
+    <button id="exportBtn" class="btn primary">Record video</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ------------------------------------------------------------------ story -->
+  <section class="pane pane-story" aria-labelledby="storyHeading">
+    <h2 id="storyHeading" class="pane-title">1 · Your story</h2>
+    <textarea id="storyText" class="story-input" spellcheck="true"
+      placeholder="Paste or write your story here.&#10;&#10;A first line on its own becomes the title card. Blank lines separate paragraphs, and each sentence becomes a scene. *Asterisks* mark words to emphasise."></textarea>
+    <div class="story-meta">
+      <span id="storyStats" class="muted"></span>
+    </div>
+    <div class="field-row">
+      <label class="field">
+        <span>Scene length</span>
+        <select id="pacingSelect">
+          <option value="18">Snappy</option>
+          <option value="26" selected>Balanced</option>
+          <option value="36">Unhurried</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Fit to</span>
+        <select id="fitSelect">
+          <option value="60" selected>60s (Shorts)</option>
+          <option value="30">30s</option>
+          <option value="0">Don't trim</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="titleCardCheck" checked> Title card</label>
+    </div>
+    <div class="field-row">
+      <button id="buildBtn" class="btn primary wide">Build the storyboard</button>
+      <button id="sampleBtn" class="btn ghost">Load a sample</button>
+    </div>
+    <p class="hint">Building replaces the current scenes. Your per-scene edits live in the storyboard, so
+      re-build when you change the words — not when you change the look.</p>
+
+    <h3 class="pane-subtitle">Upload kit</h3>
+    <div id="publishKit" class="publish-kit"></div>
+  </section>
+
+  <!-- ----------------------------------------------------------------- preview -->
+  <section class="pane pane-preview" aria-labelledby="previewHeading">
+    <h2 id="previewHeading" class="pane-title">2 · Preview</h2>
+    <div class="stage">
+      <canvas id="preview" width="405" height="720" aria-label="Video preview"></canvas>
+      <div id="stageBadge" class="stage-badge"></div>
+    </div>
+    <div class="transport">
+      <button id="playBtn" class="btn round" aria-label="Play or pause">▶</button>
+      <input id="scrub" class="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Scrub the timeline">
+      <span id="timeLabel" class="time">0.0 / 0.0s</span>
+      <label class="check"><input type="checkbox" id="loopCheck" checked> Loop</label>
+      <label class="check"><input type="checkbox" id="muteCheck"> Mute</label>
+    </div>
+    <div id="timeline" class="timeline" aria-label="Scene timeline"></div>
+    <div class="field-row timeline-tools">
+      <button id="addSceneBtn" class="btn ghost">+ Scene</button>
+      <button id="splitBtn" class="btn ghost">Split at playhead</button>
+      <button id="mergeBtn" class="btn ghost">Merge with next</button>
+      <button id="evenBtn" class="btn ghost">Even out pacing</button>
+      <button id="shuffleBtn" class="btn ghost">Shuffle looks</button>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- inspector -->
+  <section class="pane pane-inspect" aria-labelledby="inspectHeading">
+    <h2 id="inspectHeading" class="pane-title">3 · Tune it</h2>
+
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" role="tab" data-tab="scene" aria-selected="true">Scene</button>
+      <button class="tab" role="tab" data-tab="look" aria-selected="false">Look</button>
+      <button class="tab" role="tab" data-tab="sound" aria-selected="false">Sound</button>
+      <button class="tab" role="tab" data-tab="export" aria-selected="false">Export</button>
+    </div>
+
+    <div class="tab-panel is-active" data-panel="scene">
+      <div id="noScene" class="empty">Pick a scene on the timeline.</div>
+      <div id="sceneEditor" hidden>
+        <label class="field block">
+          <span>Caption text</span>
+          <textarea id="sceneText" rows="3"></textarea>
+        </label>
+        <label class="field block">
+          <span>Duration <b id="durationValue">0.0s</b></span>
+          <input id="sceneDuration" type="range" min="0.6" max="10" step="0.1">
+        </label>
+        <div class="field-grid">
+          <label class="field"><span>Background</span><select id="sceneBackground"></select></label>
+          <label class="field"><span>Camera</span><select id="sceneMotion"></select></label>
+          <label class="field"><span>Transition in</span><select id="sceneTransition"></select></label>
+          <label class="field"><span>Caption style</span><select id="sceneCaption"></select></label>
+          <label class="field"><span>Caption place</span><select id="scenePosition"></select></label>
+          <label class="field"><span>Mood (score)</span><select id="sceneMood"></select></label>
+        </div>
+        <label class="field block">
+          <span>Emphasised words <i class="muted">(comma separated)</i></span>
+          <input id="sceneEmphasis" type="text" placeholder="none">
+        </label>
+        <div class="field-grid">
+          <label class="field"><span>Motion amount <b id="intensityValue"></b></span>
+            <input id="sceneIntensity" type="range" min="0" max="2" step="0.05"></label>
+          <label class="field"><span>Accent colour</span>
+            <span class="colour-row"><input id="sceneAccent" type="color"><button id="accentReset" class="btn tiny ghost">Reset</button></span></label>
+        </div>
+        <div class="field-row">
+          <button id="rerollBtn" class="btn ghost">Re-roll look</button>
+          <button id="dupBtn" class="btn ghost">Duplicate</button>
+          <button id="upBtn" class="btn ghost" aria-label="Move earlier">↑</button>
+          <button id="downBtn" class="btn ghost" aria-label="Move later">↓</button>
+          <button id="deleteBtn" class="btn ghost danger">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-panel="look">
+      <label class="field block"><span>Palette</span><select id="stylePalette"></select></label>
+      <div id="paletteSwatches" class="swatches"></div>
+      <div class="field-grid">
+        <label class="field"><span>Typeface</span><select id="styleFont"></select></label>
+        <label class="field"><span>Aspect</span><select id="styleAspect"></select></label>
+        <label class="field"><span>Frame rate</span><select id="styleFps">
+          <option value="24">24 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option>
+        </select></label>
+        <label class="field"><span>Camera amount <b id="motionScaleValue"></b></span>
+          <input id="styleMotionScale" type="range" min="0" max="2" step="0.05"></label>
+        <label class="field"><span>Grain <b id="grainValue"></b></span>
+          <input id="styleGrain" type="range" min="0" max="1" step="0.05"></label>
+        <label class="field"><span>Vignette <b id="vignetteValue"></b></span>
+          <input id="styleVignette" type="range" min="0" max="1" step="0.05"></label>
+      </div>
+      <label class="field block"><span>Watermark / handle</span>
+        <input id="styleWatermark" type="text" placeholder="@yourchannel"></label>
+      <div class="field-row">
+        <label class="check"><input type="checkbox" id="styleProgress"> Progress bar</label>
+        <label class="check"><input type="checkbox" id="styleNumbers"> Scene numbers</label>
+      </div>
+      <div class="field-row">
+        <button id="applyLookAllBtn" class="btn ghost">Apply this scene's camera to all</button>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-panel="sound">
+      <label class="check"><input type="checkbox" id="audioEnabled" checked> Generate a score</label>
+      <p class="hint">The score is synthesised from the scene moods — no audio files, and it re-writes
+        itself when you re-cut the story. It is mixed into the recording.</p>
+      <div class="field-grid">
+        <label class="field"><span>Mood</span><select id="audioMood">
+          <option value="auto" selected>Follow each scene</option>
+        </select></label>
+        <label class="field"><span>Volume <b id="audioVolumeValue"></b></span>
+          <input id="audioVolume" type="range" min="0" max="1" step="0.05"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="audioAccents" checked> Whoosh on each cut</label>
+    </div>
+
+    <div class="tab-panel" data-panel="export">
+      <div class="field-grid">
+        <label class="field"><span>Quality</span><select id="exportScale">
+          <option value="1" selected>Full (1080p)</option>
+          <option value="0.5">Draft (half size, faster)</option>
+        </select></label>
+      </div>
+      <p class="hint">Recording runs in real time with the sound — a 45-second reel takes 45 seconds.
+        Keep this tab visible; a backgrounded tab throttles the frame loop.</p>
+      <div class="field-row">
+        <button id="exportBtn2" class="btn primary wide">Record video</button>
+        <button id="cancelExportBtn" class="btn ghost" hidden>Stop</button>
+      </div>
+      <div id="exportProgress" class="progress" hidden><div id="exportBar" class="progress-bar"></div></div>
+      <div id="exportResult" class="export-result" hidden></div>
+      <h3 class="pane-subtitle">Also export</h3>
+      <div class="field-row wrap">
+        <button id="stillBtn" class="btn ghost">Cover image (PNG)</button>
+        <button id="srtBtn" class="btn ghost">Captions (.srt)</button>
+        <button id="vttBtn" class="btn ghost">Captions (.vtt)</button>
+        <button id="jsonBtn" class="btn ghost">Project (.json)</button>
+      </div>
+      <p id="exportSupport" class="hint"></p>
+    </div>
+  </section>
+</main>
+
+<input id="fileInput" type="file" accept="application/json,.json" hidden>
+
+<script src="js/story.js"></script>
+<script src="js/render.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/export.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# App code changes per deploy and has no cache-busting hash, so revalidate (cheap 304s)
+# rather than blindly refetching the whole files each time.
+/js/*
+  Cache-Control: public, max-age=0, must-revalidate
+/css/*
+  Cache-Control: public, max-age=0, must-revalidate
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
