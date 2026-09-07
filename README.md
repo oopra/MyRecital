@@ -109,8 +109,14 @@ that returns little:
   Anything else — fair use, non-commercial, unknown — is never shown at all.
 - **Artwork, not scans.** Commons ranks OCR'd book pages very highly for narrative
   queries; without filtering, a search for a battlefield passage returns title pages and
-  Google Books watermarks. Results are scored on their categories, title and shape, and
-  scanned text, maps, logos, coins and diagrams are dropped.
+  Google Books watermarks — that is not hypothetical, it is what the first live run of
+  this feature produced. Results are scored on their categories, title, byline and shape;
+  scanned text, maps, logos, coins and diagrams are dropped. **Illustrate every scene**
+  goes further and only accepts positive evidence of artwork (a category or title that
+  actually says painting, lithograph, illustration), because a scene left with its
+  generated background looks intentional and a book cover sliding past behind your
+  caption does not. The manual search box stays permissive, so you can still pick
+  anything usable by hand.
 - **Credits are automatic.** Every picture's title, artist, date and licence go into the
   Credits panel and into the exported description. For CC-BY/CC-BY-SA that is a licence
   condition, not a courtesy, and the app says so.

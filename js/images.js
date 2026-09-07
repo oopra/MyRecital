@@ -51,12 +51,19 @@ const MR_NOT_ART = /scanned|djvu|\bpdf\b|google books|title page|\bvolume\b|\bpa
 // What actual artwork looks like.
 const MR_IS_ART = /painting|paintings|artwork|oleograph|lithograph|chromolithograph|illustration|drawing|watercolou?r|engraving|woodcut|mural|fresco|miniature|sculpture|relief|temple art|folk art/i;
 
-// Rank a candidate as artwork. Negative means "never show this".
+// A library-catalogue byline ("Sarkar, Benoy Kumar, 1887-1949") means the file came out
+// of a scanned book, not off a wall. Observed in the wild, hence the rule.
+const MR_CATALOGUE_AUTHOR = /^[A-Z][a-z]+,\s+[A-Z][a-z]+.*\b1[6-9]\d{2}\b/;
+
+// Rank a candidate as artwork. Negative means "never show this"; MR_ART_CONFIDENT or
+// better means "safe to choose automatically".
+const MR_ART_CONFIDENT = 3;
 function mrArtScore(picture, categories) {
   const haystack = [picture.title, categories.join(' '), picture.credit || ''].join(' ');
   if (MR_NOT_ART.test(haystack)) return -1;
+  if (MR_CATALOGUE_AUTHOR.test(picture.artist || '')) return -1;
   let score = 0;
-  if (MR_IS_ART.test(haystack)) score += 3;
+  if (MR_IS_ART.test(haystack)) score += MR_ART_CONFIDENT;
   if (picture.artist) score += 1;
   if (picture.width >= 700) score += 1;
   // Very wide or very tall files are usually scans of spreads or scrolls, not scenes.
@@ -113,6 +120,7 @@ function parseCommonsResults(json, opts) {
     const categories = (page.categories || []).map((c) => String(c.title || '').replace(/^Category:/, ''));
     const score = mrArtScore(picture, categories);
     if (score < 0) return;                                               // a scanned page, not art
+    picture.artScore = score;
     out.push({ picture, score, rank });
   });
   // Artwork first, and within the same score keep Commons' own relevance order.

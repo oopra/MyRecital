@@ -635,10 +635,16 @@ async function illustrateAll() {
   // and getting the user's IP throttled.
   let rateLimited = false;
   const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Automatic picking only accepts results with positive evidence of being artwork —
+  // categories or a title that actually say painting, lithograph, illustration. A scene
+  // left with its procedural background looks intentional; a Google Books watermark
+  // sliding past behind your caption does not. The manual search box below stays
+  // permissive, so anything usable can still be chosen by hand.
   const search = async (query) => {
     if (!query || rateLimited) return [];
     try {
-      return await searchCommons(query, { limit: 8, publicDomainOnly });
+      const results = await searchCommons(query, { limit: 8, publicDomainOnly });
+      return results.filter((r) => (r.artScore || 0) >= MR_ART_CONFIDENT);
     } catch (err) {
       if (err && err.rateLimited) rateLimited = true;
       return [];

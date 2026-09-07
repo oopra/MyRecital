@@ -418,6 +418,7 @@ const COMMONS_FIXTURE = {
     pages: [
       {
         pageid: 1, ns: 6, title: 'File:Sairandhri, by Raja Ravi Varma.jpg',
+        categories: [{ title: 'Category:Paintings by Raja Ravi Varma' }],
         imageinfo: [{
           width: 535, height: 800, thumbwidth: 803, thumbheight: 1200,
           thumburl: 'https://upload.wikimedia.org/pd-800.jpg',
@@ -427,6 +428,7 @@ const COMMONS_FIXTURE = {
             License: { value: 'pd' },
             LicenseShortName: { value: 'Public domain' },
             ObjectName: { value: 'Sairandhri' },
+            Categories: { value: 'Paintings by Raja Ravi Varma' },
             Artist: { value: '<a href="/wiki/Raja_Ravi_Varma">Raja Ravi Varma</a>' },
             DateTimeOriginal: { value: 'circa 1890' }
           }
@@ -434,6 +436,7 @@ const COMMONS_FIXTURE = {
       },
       {
         pageid: 2, ns: 6, title: 'File:Krishna and Arjuna on Chariot Painting.jpg',
+        categories: [{ title: 'Category:Paintings of Krishna' }],
         imageinfo: [{
           width: 2196, height: 3126, thumbwidth: 1200, thumbheight: 1708,
           thumburl: 'https://upload.wikimedia.org/ccbysa-1200.jpg',
@@ -583,6 +586,51 @@ test('credits are collected once per artwork and land in the description', async
   assert.match(r.description, /Raja Ravi Varma/);
 });
 
+// A regression test built from a real failure: the first live run of "illustrate every
+// scene" on a Kurukshetra passage returned these three files, and put a book cover and a
+// Google Books watermark page into the reel. The painting must survive; the scans must not.
+test('the junk that a real Commons run actually returned is rejected', async () => {
+  const r = await ev(() => {
+    const observed = {
+      query: {
+        pages: [
+          { pageid: 11, title: 'File:The Green Bag (1889–1914), Volume 08.jpg',
+            categories: [{ title: 'Category:Scanned books' }, { title: 'Category:Google Books' }],
+            imageinfo: [{ width: 900, height: 1400, thumburl: 'https://upload.wikimedia.org/greenbag.jpg',
+              url: 'https://upload.wikimedia.org/greenbag.jpg',
+              extmetadata: { License: { value: 'pd' }, LicenseShortName: { value: 'Public domain' },
+                ObjectName: { value: 'The Green Bag (1889–1914), Volume 08' },
+                Artist: { value: 'The Green Bag' } } }] },
+          { pageid: 12, title: 'File:Love in Hindu literature.jpg',
+            categories: [{ title: 'Category:Books about Hinduism' }],
+            imageinfo: [{ width: 800, height: 1200, thumburl: 'https://upload.wikimedia.org/love.jpg',
+              url: 'https://upload.wikimedia.org/love.jpg',
+              extmetadata: { License: { value: 'pd' }, LicenseShortName: { value: 'Public domain' },
+                ObjectName: { value: 'Love in Hindu literature' },
+                Artist: { value: 'Sarkar, Benoy Kumar, 1887-1949' } } }] },
+          { pageid: 13, title: 'File:Bhima fighting Duryodhana.jpg',
+            categories: [{ title: 'Category:Paintings of the Mahabharata' }],
+            imageinfo: [{ width: 1100, height: 1500, thumburl: 'https://upload.wikimedia.org/bhima.jpg',
+              url: 'https://upload.wikimedia.org/bhima.jpg',
+              extmetadata: { License: { value: 'pd' }, LicenseShortName: { value: 'Public domain' },
+                ObjectName: { value: 'Bhima fighting Duryodhana' },
+                Artist: { value: 'Unknown authorUnknown author' } } }] }
+        ]
+      }
+    };
+    const results = parseCommonsResults(observed, { publicDomainOnly: true });
+    return {
+      titles: results.map((p) => p.title),
+      confident: results.filter((p) => p.artScore >= MR_ART_CONFIDENT).map((p) => p.title),
+      artist: results.length ? results[0].artist : ''
+    };
+  });
+  assert.deepEqual(r.titles, ['Bhima fighting Duryodhana'],
+    'the book scan and the library-catalogue scan are both dropped');
+  assert.deepEqual(r.confident, ['Bhima fighting Duryodhana']);
+  assert.equal(r.artist, 'Unknown author', 'Commons doubles the artist name; it is collapsed');
+});
+
 test('a picture survives the save-file round trip', async () => {
   const r = await ev(() => {
     ed.project.scenes[0].picture = { src: 'https://example.org/art.jpg', title: 'Art', licence: 'Public domain', licenceClass: 'public' };
@@ -604,9 +652,11 @@ test('the picture panel searches Commons and assigns what you click', async () =
   // Stub fetch so the UI path is tested without the network.
   await page.evaluate((fixture) => {
     window.__searched = [];
+    // Shaped like a real Response: searchCommons reads text() so it can recognise a
+    // rate-limit body, which is not JSON.
     window.fetch = (url) => {
       window.__searched.push(String(url));
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(fixture) });
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(fixture)) });
     };
   }, COMMONS_FIXTURE);
   await page.click('.tab[data-tab="picture"]');
@@ -630,7 +680,7 @@ test('the picture panel searches Commons and assigns what you click', async () =
 
 test('illustrate-every-scene fills every scene, using distinct pictures first', async () => {
   await page.evaluate((fixture) => {
-    window.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(fixture) });
+    window.fetch = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(fixture)) });
   }, COMMONS_FIXTURE);
   await page.click('.tab[data-tab="picture"]');
   await page.uncheck('#publicDomainOnly');
