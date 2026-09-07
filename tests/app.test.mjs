@@ -722,6 +722,188 @@ test('live: Commons still answers the shape we parse', { skip: !process.env.MR_L
   assert.ok(r.width > 300);
 });
 
+// -------------------------------------------------------------- drawn panels
+//
+// There is no API key here, so the provider is stubbed — but the stub asserts the exact
+// request each adapter builds (endpoint, headers, body), which is the part that would
+// otherwise only fail on someone's first paid run.
+
+// A tiny real PNG, so the blob → IndexedDB → object URL → canvas path is exercised for real.
+const PANEL_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAHElEQVQI12P4//8/AzYEEwDGDGD8/x8A' +
+  'A2wG8QwZ2QAAAABJRU5ErkJggg==';
+
+async function stubProvider(page, respond) {
+  await page.evaluate(({ b64, respond }) => {
+    window.__calls = [];
+    // eslint-disable-next-line no-eval
+    const decide = new Function('call', 'b64', respond);
+    window.fetch = (url, init) => {
+      const call = { url: String(url), init: init || {} };
+      window.__calls.push(call);
+      const result = decide(call, b64);
+      return Promise.resolve({
+        ok: result.ok !== false,
+        status: result.status || (result.ok === false ? 400 : 200),
+        statusText: result.statusText || '',
+        text: () => Promise.resolve(typeof result.body === 'string' ? result.body : JSON.stringify(result.body)),
+        json: () => Promise.resolve(result.body)
+      });
+    };
+  }, { b64: PANEL_PNG_B64, respond });
+}
+
+test('the panel prompt locks the style and describes only the cast in that beat', async () => {
+  const r = await ev(() => {
+    // Separate paragraphs, so the two beats cannot be glued together by the orphan rule.
+    const p = buildStoryboard('Then Arjuna asked Krishna to drive the chariot between the armies.\n\n' +
+      'Far away on the other wing, Bhima waited alone beside his chariot.',
+      { titleCard: false, maxWordsPerScene: 12 });
+    p.generation = Object.assign({}, MR_DEFAULT_GENERATION, { style: 'ack', styleNotes: 'dawn light' });
+    p.cast = [
+      { name: 'Arjuna', description: 'young warrior, green tunic' },
+      { name: 'Krishna', description: 'blue skin, peacock feather' },
+      { name: 'Bhima', description: 'huge, mace' }
+    ];
+    const first = panelPrompt(p.scenes[0], p);
+    const last = panelPrompt(p.scenes[p.scenes.length - 1], p);
+    return { first, last, suggested: suggestCast(p).map((c) => c.name) };
+  });
+  assert.match(r.first, /Amar Chitra Katha/, 'the house style is in every prompt');
+  assert.match(r.first, /dawn light/);
+  assert.match(r.first, /Arjuna — young warrior, green tunic/);
+  assert.match(r.first, /Krishna — blue skin/);
+  assert.doesNotMatch(r.first, /Bhima/, 'a character who is not in this beat is not described');
+  assert.match(r.first, /no speech bubbles|no lettering/, 'the model is told not to draw text');
+  assert.ok(r.suggested.includes('Arjuna') && r.suggested.includes('Krishna'));
+});
+
+test('the cast suggestion ignores the title card, which is written in title case', async () => {
+  const names = await ev(() => {
+    const p = buildStoryboard('The Question on the Field\n\n' +
+      'Then Arjuna asked Krishna to drive his chariot between the two armies.',
+      { titleCard: true });
+    return suggestCast(p).map((c) => c.name);
+  });
+  assert.ok(names.includes('Arjuna'), 'real characters are still found');
+  assert.ok(!names.includes('Question') && !names.includes('Field'),
+    'title-case words from the title card are not characters');
+});
+
+test('the Gemini adapter posts the documented shape and keeps the key out of the URL', async () => {
+  await stubProvider(page, `return { body: { interaction: { output_image: { data: b64 } } } };`);
+  const r = await ev(async () => {
+    const p = buildStoryboard('Arjuna looked upon the two armies.', { titleCard: false });
+    p.generation = Object.assign({}, MR_DEFAULT_GENERATION, { provider: 'gemini' });
+    await generatePanelFor(p.scenes[0], p, { apiKey: 'test-key-123' });
+    const call = window.__calls[0];
+    return {
+      url: call.url,
+      method: call.init.method,
+      header: call.init.headers['x-goog-api-key'],
+      body: JSON.parse(call.init.body),
+      picture: p.scenes[0].picture,
+      panel: p.scenes[0].panel
+    };
+  });
+  assert.equal(r.url, 'https://generativelanguage.googleapis.com/v1beta/interactions');
+  assert.equal(r.method, 'POST');
+  assert.equal(r.header, 'test-key-123', 'the key goes in a header, never the query string');
+  assert.doesNotMatch(r.url, /test-key-123/);
+  assert.equal(r.body.model, 'gemini-3.1-flash-image');
+  assert.equal(r.body.input[0].type, 'text');
+  assert.equal(r.body.response_format.aspect_ratio, '9:16', 'the reel aspect is requested, not cropped later');
+  assert.equal(r.picture.source, 'generated');
+  assert.ok(r.picture.src.startsWith('blob:'), 'the panel is drawn from a local blob, never a remote URL');
+  assert.ok(r.panel.id && r.panel.prompt, 'the project remembers what made this panel');
+});
+
+test('OpenAI and Replicate go through the proxy, not the provider, and send no key by default', async () => {
+  await stubProvider(page, `return { body: { b64: b64, mime: 'image/png' } };`);
+  const r = await ev(async () => {
+    const out = [];
+    for (const provider of ['openai', 'replicate']) {
+      const p = buildStoryboard('The armies stood facing one another.', { titleCard: false });
+      p.generation = Object.assign({}, MR_DEFAULT_GENERATION, { provider });
+      await generatePanelFor(p.scenes[0], p, {});
+      const call = window.__calls[window.__calls.length - 1];
+      out.push({ url: call.url, body: JSON.parse(call.init.body), src: p.scenes[0].picture.src });
+    }
+    return out;
+  });
+  for (const call of r) {
+    assert.equal(call.url, '/api/image', 'browser-blocked providers go through our own function');
+    assert.equal(call.body.aspect, '9:16');
+    assert.ok(call.body.prompt.length > 20);
+    assert.equal(call.body.apiKey, undefined, 'no key is sent when the server holds it');
+    assert.ok(call.src.startsWith('blob:'));
+  }
+  assert.equal(r[0].body.provider, 'openai');
+  assert.equal(r[1].body.provider, 'replicate');
+});
+
+test('a provider error surfaces the provider\'s own words', async () => {
+  await stubProvider(page, `return { ok: false, status: 400, body: { error: { message: 'Unknown parameter: response_format' } } };`);
+  const message = await ev(async () => {
+    const p = buildStoryboard('A beat that will fail to draw.', { titleCard: false });
+    p.generation = Object.assign({}, MR_DEFAULT_GENERATION, { provider: 'gemini' });
+    try { await generatePanelFor(p.scenes[0], p, { apiKey: 'k' }); return 'no error'; }
+    catch (e) { return e.message; }
+  });
+  // This is the difference between "generation failed" and a one-run fix.
+  assert.match(message, /Unknown parameter: response_format/);
+  assert.match(message, /400/);
+});
+
+test('a drawn panel is stored, redrawn from IndexedDB after a reload, and rendered', async () => {
+  await stubProvider(page, `return { body: { interaction: { output_image: { data: b64 } } } };`);
+  const drawn = await ev(async () => {
+    ed.project.generation = Object.assign({}, MR_DEFAULT_GENERATION, { provider: 'gemini' });
+    const scene = ed.project.scenes[1];
+    await generatePanelFor(scene, ed.project, { apiKey: 'k' });
+    saveLocal();
+    return { panelId: scene.panel.id, grade: scene.pictureGrade };
+  });
+  assert.ok(drawn.panelId);
+  assert.equal(drawn.grade, 0.08, 'a drawn panel is not graded down toward the palette like found art');
+
+  // Reload: the object URL is gone, the blob is not.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => typeof ed !== 'undefined' && ed.project);
+  const after = await ev(async () => {
+    const restored = await restorePanels(ed.project);
+    const scene = ed.project.scenes.find((s) => s.panel);
+    const canvas = document.createElement('canvas');
+    canvas.width = 54; canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(54 / 1080, 96 / 1920);
+    const times = sceneTimeline(ed.project);
+    const index = ed.project.scenes.indexOf(scene);
+    renderFrame(ctx, ed.project, times[index].start + 0.5, { width: 1080, height: 1920 });
+    // Reading pixels back proves a blob-backed panel leaves the canvas recordable.
+    let tainted = false;
+    try { ctx.getImageData(0, 0, 1, 1); } catch { tainted = true; }
+    return { restored, hasPicture: !!(scene && scene.picture), tainted };
+  });
+  assert.equal(after.restored, 1, 'the panel came back from IndexedDB');
+  assert.equal(after.hasPicture, true);
+  assert.equal(after.tainted, false);
+  assert.deepEqual(page.__errors, []);
+});
+
+test('generated panels are not credited as somebody else\'s artwork', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('One beat about a boat. Another beat about the sea.',
+      { titleCard: false, maxWordsPerScene: 6 });
+    p.scenes[0].picture = { src: 'blob:x', title: 'Generated panel', licence: 'Generated illustration', licenceClass: 'generated', source: 'generated' };
+    p.scenes[1].picture = { src: 'c', title: 'Sairandhri', artist: 'Raja Ravi Varma', licence: 'Public domain', licenceClass: 'public' };
+    return { credits: projectCredits(p), line: creditLine(p.scenes[0].picture) };
+  });
+  assert.equal(r.credits.length, 1, 'only the found artwork is credited');
+  assert.match(r.credits[0], /Raja Ravi Varma/);
+  assert.equal(r.line, '', 'a drawn panel produces no credit line at all');
+});
+
 test('the reel reloads from local storage on the next visit', async () => {
   await ev(() => {
     document.getElementById('storyText').value = 'Persisted Reel\n\nOne line of story that should come back.';

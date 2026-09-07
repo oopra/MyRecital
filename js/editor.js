@@ -64,6 +64,7 @@ function afterChange() {
   syncInspector();
   syncStyleControls();
   syncPicturePanel();
+  syncPanelControls();
   syncPublishKit();
   drawPreview();
   updateTransport();
@@ -801,6 +802,188 @@ function wirePictures() {
   }, (v) => { $('focusYValue').textContent = v.toFixed(2); });
 }
 
+// ---------------------------------------------------------------- drawn panels
+
+// The key never goes into the project file — that file gets shared. It lives in this
+// browser only, under its own storage key, per provider.
+const MR_KEY_STORAGE = 'myrecital.apikey.';
+let mrDrawing = null;      // AbortController while a run is going
+
+function storedKey(provider) {
+  try { return localStorage.getItem(MR_KEY_STORAGE + provider) || ''; } catch { return ''; }
+}
+function storeKey(provider, value) {
+  try {
+    if (value) localStorage.setItem(MR_KEY_STORAGE + provider, value);
+    else localStorage.removeItem(MR_KEY_STORAGE + provider);
+  } catch { /* private mode — the key just won't be remembered */ }
+}
+
+function drawStatus(text, isError) {
+  const box = $('drawStatus');
+  box.hidden = !text;
+  box.textContent = text || '';
+  box.style.color = isError ? 'var(--danger)' : '';
+}
+
+function generationSettings() {
+  return Object.assign({}, MR_DEFAULT_GENERATION, ed.project.generation);
+}
+
+function syncPanelControls() {
+  const generation = generationSettings();
+  ed.suppress = true;
+  $('genProvider').value = generation.provider;
+  $('genStyle').value = generation.style;
+  $('genStyleNotes').value = generation.styleNotes || '';
+  $('genKey').value = storedKey(generation.provider);
+  ed.suppress = false;
+  const provider = MR_PROVIDERS[generation.provider] || MR_PROVIDERS.gemini;
+  $('genKeyLabel').textContent = `${provider.name} API key`;
+  $('genKeyNote').textContent = provider.direct
+    ? 'Called straight from this page, so no server is needed. The key is kept in this browser only — never in the project file.'
+    : `${provider.name} does not allow browser calls, so requests go through ${generation.proxy}. Deploy functions/api/image.js and set the key there; a key typed here is sent to your own function as a fallback.`;
+  renderCast();
+}
+
+function renderCast() {
+  const list = $('castList');
+  list.innerHTML = '';
+  const cast = ed.project.cast || [];
+  if (!cast.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.textContent = 'No cast yet. Without descriptions the model redraws each character from scratch every panel.';
+    list.appendChild(empty);
+    return;
+  }
+  cast.forEach((member, i) => {
+    const row = document.createElement('div');
+    row.className = 'cast-row';
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.className = 'cast-name';
+    name.value = member.name;
+    name.placeholder = 'Name';
+    name.addEventListener('change', () => commit('rename character', (p) => { p.cast[i].name = name.value; }));
+    const description = document.createElement('input');
+    description.type = 'text';
+    description.value = member.description || '';
+    description.placeholder = 'young warrior, green tunic, gold armband, topknot';
+    description.addEventListener('change', () =>
+      commit('describe character', (p) => { p.cast[i].description = description.value; }));
+    const remove = document.createElement('button');
+    remove.className = 'btn ghost tiny';
+    remove.textContent = '×';
+    remove.title = 'Remove';
+    remove.addEventListener('click', () => commit('remove character', (p) => { p.cast.splice(i, 1); }));
+    row.appendChild(name);
+    row.appendChild(description);
+    row.appendChild(remove);
+    list.appendChild(row);
+  });
+}
+
+// Draw panels for the given scenes, one at a time. Serial on purpose: image models are
+// slow and rate-limited, and a burst of ten parallel calls is the fastest way to get a
+// 429 and a half-illustrated reel.
+async function drawPanels(scenes) {
+  if (mrDrawing) return;
+  const generation = generationSettings();
+  const provider = MR_PROVIDERS[generation.provider] || MR_PROVIDERS.gemini;
+  const apiKey = $('genKey').value.trim();
+  if (provider.direct && !apiKey) {
+    drawStatus(`${provider.name} is called from this page, so it needs a key here.`, true);
+    return;
+  }
+  mrDrawing = new AbortController();
+  $('cancelDrawBtn').hidden = false;
+  $('drawProgress').hidden = false;
+  const bar = $('drawBar');
+  let done = 0, drawn = 0;
+  const before = cloneProject(ed.project);
+
+  for (const scene of scenes) {
+    if (mrDrawing.signal.aborted) break;
+    drawStatus(`Drawing panel ${done + 1} of ${scenes.length}…`);
+    try {
+      const live = ed.project.scenes.find((s) => s.id === scene.id);
+      if (live) { await generatePanelFor(live, ed.project, { apiKey, signal: mrDrawing.signal }); drawn++; }
+      drawPreview();
+      renderTimeline();
+    } catch (err) {
+      if (mrDrawing.signal.aborted) break;
+      // Stop on the first real failure: ten identical errors help nobody, and a wrong key
+      // or a wrong model name fails identically every time.
+      drawStatus(`Stopped at panel ${done + 1}: ${err.message}`, true);
+      break;
+    }
+    done++;
+    bar.style.width = ((done / scenes.length) * 100).toFixed(1) + '%';
+  }
+
+  if (drawn) {
+    // One undo entry for the whole run, holding the state from before it started.
+    ed.history.push({ label: 'draw panels', project: before });
+    if (ed.history.length > MR_HISTORY_LIMIT) ed.history.shift();
+    ed.future.length = 0;
+    if (!$('drawStatus').textContent.startsWith('Stopped')) {
+      drawStatus(`Drew ${drawn} panel${drawn === 1 ? '' : 's'}.`);
+    }
+    afterChange();
+  }
+  mrDrawing = null;
+  $('cancelDrawBtn').hidden = true;
+  $('drawProgress').hidden = true;
+  bar.style.width = '0%';
+}
+
+function wirePanels() {
+  const providerKeys = Object.keys(MR_PROVIDERS);
+  fillSelect($('genProvider'), providerKeys, providerKeys.map((k) => MR_PROVIDERS[k].name));
+  const styleKeys = Object.keys(MR_ART_STYLES);
+  fillSelect($('genStyle'), styleKeys, styleKeys.map((k) => MR_ART_STYLES[k].name));
+
+  $('genProvider').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set provider', (p) => {
+      p.generation = Object.assign({}, MR_DEFAULT_GENERATION, p.generation, { provider: $('genProvider').value });
+    });
+  });
+  $('genStyle').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set art style', (p) => {
+      p.generation = Object.assign({}, MR_DEFAULT_GENERATION, p.generation, { style: $('genStyle').value });
+    });
+  });
+  $('genStyleNotes').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set style notes', (p) => {
+      p.generation = Object.assign({}, MR_DEFAULT_GENERATION, p.generation, { styleNotes: $('genStyleNotes').value });
+    });
+  });
+  $('genKey').addEventListener('change', () => {
+    if (ed.suppress) return;
+    storeKey(generationSettings().provider, $('genKey').value.trim());
+  });
+  $('suggestCastBtn').addEventListener('click', () => {
+    commit('find the cast', (p) => {
+      const existing = new Set((p.cast || []).map((c) => c.name.toLowerCase()));
+      const found = suggestCast(p).filter((c) => !existing.has(c.name.toLowerCase()));
+      p.cast = (p.cast || []).concat(found);
+    });
+  });
+  $('addCastBtn').addEventListener('click', () => {
+    commit('add character', (p) => { p.cast = (p.cast || []).concat([{ name: '', description: '' }]); });
+  });
+  $('drawAllBtn').addEventListener('click', () => drawPanels(ed.project.scenes.slice()));
+  $('drawOneBtn').addEventListener('click', () => {
+    const scene = selectedScene();
+    if (scene) drawPanels([scene]);
+  });
+  $('cancelDrawBtn').addEventListener('click', () => { if (mrDrawing) mrDrawing.abort(); });
+}
+
 // ---------------------------------------------------------------- building
 
 function buildFromText() {
@@ -955,6 +1138,7 @@ function bindRange(id, write, format) {
 function wireEditor() {
   buildSelects();
   wirePictures();
+  wirePanels();
 
   $('buildBtn').addEventListener('click', buildFromText);
   $('sampleBtn').addEventListener('click', () => {

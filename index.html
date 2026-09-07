@@ -94,7 +94,7 @@
 
     <div class="tabs" role="tablist">
       <button class="tab is-active" role="tab" data-tab="scene" aria-selected="true">Scene</button>
-      <button class="tab" role="tab" data-tab="picture" aria-selected="false">Picture</button>
+      <button class="tab" role="tab" data-tab="picture" aria-selected="false">Art</button>
       <button class="tab" role="tab" data-tab="look" aria-selected="false">Look</button>
       <button class="tab" role="tab" data-tab="sound" aria-selected="false">Sound</button>
       <button class="tab" role="tab" data-tab="export" aria-selected="false">Export</button>
@@ -141,6 +141,41 @@
 
 
     <div class="tab-panel" data-panel="picture">
+
+      <h3 class="pane-subtitle">Draw the panels</h3>
+      <p class="hint">Panels are drawn for your beats by an image model, in one house style, with your
+        cast described the same way every time. Needs your own API key — roughly 1–20¢ per panel
+        depending on provider, and 5–20 seconds each.</p>
+      <div class="field-grid">
+        <label class="field"><span>Provider</span><select id="genProvider"></select></label>
+        <label class="field"><span>Art style</span><select id="genStyle"></select></label>
+      </div>
+      <label class="field block">
+        <span id="genKeyLabel">API key</span>
+        <input id="genKey" type="password" autocomplete="off" placeholder="Paste your key">
+      </label>
+      <p id="genKeyNote" class="hint"></p>
+      <label class="field block">
+        <span>Extra style notes <i class="muted">(optional)</i></span>
+        <input id="genStyleNotes" type="text" placeholder="e.g. dawn light, dusty battlefield, muted palette">
+      </label>
+
+      <h4 class="pane-subtitle">Cast <i class="muted">— describe each once, so they look the same in every panel</i></h4>
+      <div id="castList" class="cast-list"></div>
+      <div class="field-row">
+        <button id="suggestCastBtn" class="btn ghost">Find names in the story</button>
+        <button id="addCastBtn" class="btn ghost">+ Character</button>
+      </div>
+
+      <div class="field-row">
+        <button id="drawAllBtn" class="btn primary wide">Draw every panel</button>
+        <button id="drawOneBtn" class="btn">Draw this scene</button>
+        <button id="cancelDrawBtn" class="btn ghost" hidden>Stop</button>
+      </div>
+      <div id="drawProgress" class="progress" hidden><div id="drawBar" class="progress-bar"></div></div>
+      <div id="drawStatus" class="export-result" hidden></div>
+
+      <h3 class="pane-subtitle">Or find existing artwork</h3>
       <p class="hint">Public-domain and openly-licensed artwork from Wikimedia Commons. No account,
         no key, no cost — and the credits go into your description automatically.</p>
       <label class="field block">
@@ -263,6 +298,7 @@
 
 <script src="js/story.js"></script>
 <script src="js/images.js"></script>
+<script src="js/generate.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/export.js"></script>

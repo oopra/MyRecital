@@ -165,11 +165,14 @@ function importProjectJSON(text) {
     source: data.source || '',
     style: Object.assign({}, MR_DEFAULT_STYLE, data.style),
     audio: Object.assign({}, MR_DEFAULT_AUDIO, data.audio),
+    generation: Object.assign({}, typeof MR_DEFAULT_GENERATION !== 'undefined' ? MR_DEFAULT_GENERATION : {}, data.generation),
+    cast: Array.isArray(data.cast) ? data.cast : [],
     scenes: data.scenes.map((scene) => Object.assign(makeScene(scene.text || '', {
       mood: scene.mood, background: scene.background, motion: scene.motion, transition: scene.transition,
       captionStyle: scene.captionStyle, captionPosition: scene.captionPosition, emphasis: scene.emphasis,
       accent: scene.accent, intensity: scene.intensity, duration: scene.duration, seed: scene.seed, kind: scene.kind,
-      picture: scene.picture, pictureFit: scene.pictureFit, pictureFocus: scene.pictureFocus, pictureGrade: scene.pictureGrade
+      picture: scene.picture, pictureFit: scene.pictureFit, pictureFocus: scene.pictureFocus, pictureGrade: scene.pictureGrade,
+      panel: scene.panel
     }), { id: scene.id || undefined }))
   };
   for (const scene of project.scenes) if (!scene.id) scene.id = mrSceneId();

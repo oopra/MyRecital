@@ -10,7 +10,8 @@ generated in the browser from your text.
 index.html        — the page: three panes (story, preview, tools)
 css/styles.css    — all styling
 js/story.js       — text → storyboard: sentence splitting, beats, mood, pacing
-js/images.js      — illustration: Wikimedia Commons search, licence filter, image cache
+js/images.js      — found artwork: Wikimedia Commons search, licence filter, image cache
+js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
 js/render.js      — the picture: artwork or 13 procedural backgrounds, camera, captions
 js/audio.js       — the score: synthesised from the scene moods, no audio files
 js/export.js      — recording (MediaRecorder), stills, captions, project files
@@ -18,6 +19,7 @@ js/editor.js      — the editing tools: timeline, inspector, undo, autosave
 js/app.js         — boot
 tests/            — the test suite, run against a real browser
 scripts/serve.mjs — `npm run serve`, a static server for local development
+functions/api/image.js — optional: image-model proxy for providers that block browsers
 ```
 
 The app is **plain JavaScript with no build step** — `index.html` loads the `js/*.js`
@@ -53,11 +55,10 @@ and the recorder all call it, so what you scrub past is exactly what gets record
 two renders of the same moment are identical to the pixel.
 
 **3 · Illustration.** A scene can carry a picture, and then the camera move becomes a Ken
-Burns pass over the artwork instead of over a generated background. Pictures come from
-Wikimedia Commons — searched from the browser with no account, no key and no cost. Press
-**Illustrate every scene** and each beat is searched using its own proper nouns (plus a
-standing style hint like "Mahabharata painting"), which is why a passage naming Arjuna and
-Krishna finds paintings of them.
+Burns pass over it instead of over a generated background. A picture comes from one of two
+places: **drawn** for that beat by an image model in a house style you choose, or **found**
+on Wikimedia Commons. Drawing gets you panels of your own story; finding gets you real
+paintings for free.
 
 **4 · Tools, not a re-run.** Because there is no rendered artefact to keep in sync, every
 edit is instant: change a background, drag a scene, split a beat, and the next frame just
@@ -97,6 +98,48 @@ scene · `s` split · `delete` remove scene · `ctrl/cmd+Z` undo.
 - **Project** — plain JSON, so a reel can be reopened, diffed or handed to someone else.
 - **Upload kit** — a title, a description built from the story, and tags pulled from its
   own most-used words, each with a copy button.
+
+## Drawing the panels
+
+Open the **Art** tab, describe your cast, press **Draw every panel**. Each beat becomes a
+prompt: one fixed house-style block, the characters named *in that beat* described exactly
+as you wrote them, the beat itself, and a rule that the panel must contain no lettering
+(the app draws the captions, and a model's attempt at text inside the picture is both
+unreadable and off-brand).
+
+**Style presets:** Amar Chitra Katha (default), Tinkle cartoon, ink and wash, block print —
+plus a free-text notes field that is appended to every prompt.
+
+**The cast is the point.** A model has no memory between calls, so unless every prompt
+describes Arjuna identically you get a different Arjuna in every panel. **Find names in
+the story** proposes the recurring proper nouns; you write one description each
+("young warrior, green tunic, gold armband, topknot") and that line is reused in every
+panel he appears in. This gets you *consistent*, not *identical* — drift across ten panels
+is real, and the honest fix for a specific panel is to redraw it.
+
+**Providers.** You bring the key; Claude cannot generate images, so there is no way around
+that.
+
+| Provider | Backend needed | Why |
+| --- | --- | --- |
+| Google Gemini | none | The only one that answers cross-origin browser calls. Key stays in this browser. |
+| OpenAI `gpt-image-1` | `functions/api/image.js` | OpenAI's API sends no CORS headers, so a browser cannot call it. |
+| Replicate (Flux) | `functions/api/image.js` | Same, and it returns a URL on its own CDN rather than bytes. |
+
+Deploy `functions/api/image.js` to Cloudflare Pages (or move it to `api/image.js` for
+Vercel) and set `OPENAI_API_KEY` / `REPLICATE_API_TOKEN` / `GEMINI_API_KEY` in the
+environment. The function always returns image *bytes*, never a URL — a foreign image host
+would taint the canvas and make the reel unrecordable. A key typed into the app is sent to
+your own function only as a fallback for quick trials.
+
+Cost and time land around 1–20¢ and 5–20 seconds per panel depending on provider and size,
+so a ten-scene reel is roughly a minute and small change. Panels are drawn one at a time on
+purpose: ten parallel calls is the fastest way to get rate-limited half way through.
+
+**Where panels live.** The image bytes go into IndexedDB in *this browser*; the project
+file only remembers the panel's id and the prompt that made it. So a saved `.json` stays
+small and shareable, but the panels themselves do not travel with it — the exported video
+is the artefact that does.
 
 ## Illustrating from Wikimedia Commons
 
@@ -146,6 +189,14 @@ music re-writes itself. It is mixed into the recording, not just played locally.
   a spoken voiceover would play locally and be missing from the file. Rather than ship
   that trap, MyRecital does captions and score only — add narration in your editor if you
   want it, using the exported `.srt` as the script.
+- **The generation adapters have never run against a live API.** They were written from
+  each provider's current documentation, and the request shapes are asserted in tests, but
+  no key exists in the environment they were built in. Every adapter therefore surfaces the
+  provider's own error text verbatim, so a wrong field name is a one-run fix rather than a
+  guessing game — but expect that first run to be where a shape problem shows up.
+- **Character drift is real.** A textual cast description gets you the same costume and
+  broad look, not the same face. Reference-image conditioning (supported by Gemini and
+  OpenAI, not by the Replicate path) would tighten this and is not wired up yet.
 - **Picture search is a hint engine too.** It reads proper nouns, not meaning, so an
   abstract beat ("I will not fight, he said") has nothing to search on and falls back to
   the reel's style hint, then to reusing a picture already in the reel. Expect to swap a

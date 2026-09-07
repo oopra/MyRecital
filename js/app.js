@@ -45,6 +45,11 @@ function bootMyRecital() {
   preloadPictures(ed.project).then((result) => {
     if (result.total) { drawPreview(); renderTimeline(); }
   });
+  // Panels are blobs in IndexedDB; their object URLs do not survive a reload, so mint
+  // them again. Until that finishes those scenes show their procedural background.
+  restorePanels(ed.project).then((restored) => {
+    if (restored) { drawPreview(); renderTimeline(); }
+  }).catch(() => { /* no IndexedDB (private mode): panels are simply not restored */ });
   // The first render can land before web fonts settle; repaint once they have.
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawPreview());
 }

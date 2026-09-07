@@ -322,7 +322,10 @@ function makeScene(text, opts) {
     picture: o.picture || null,
     pictureFit: o.pictureFit || 'cover',
     pictureFocus: o.pictureFocus || { x: 0.5, y: 0.42 },   // faces sit above centre
-    pictureGrade: o.pictureGrade != null ? o.pictureGrade : 0.28
+    pictureGrade: o.pictureGrade != null ? o.pictureGrade : 0.28,
+    // A drawn panel: { id, prompt, provider, model } — the bytes live in IndexedDB under
+    // that id, because ten 1K images do not fit in localStorage.
+    panel: o.panel || null
   };
 }
 
@@ -395,6 +398,9 @@ function buildStoryboard(text, opts) {
     source: text,
     style: Object.assign({}, MR_DEFAULT_STYLE, o.style),
     audio: Object.assign({}, MR_DEFAULT_AUDIO, o.audio),
+    // Panel drawing settings and the cast description shared by every panel prompt.
+    generation: Object.assign({}, typeof MR_DEFAULT_GENERATION !== 'undefined' ? MR_DEFAULT_GENERATION : {}, o.generation),
+    cast: o.cast || [],
     scenes
   };
   if (o.fit !== false) fitDuration(project, o.maxSeconds || MR_SHORTS_LIMIT);

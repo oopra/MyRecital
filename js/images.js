@@ -204,7 +204,7 @@ function imageQueryFor(scene, project) {
 // ---------------------------------------------------------------- credit
 
 function creditLine(picture) {
-  if (!picture) return '';
+  if (!picture || picture.source === 'generated') return '';
   const bits = [picture.title];
   if (picture.artist) bits.push(picture.artist);
   if (picture.date) bits.push(picture.date);
@@ -217,9 +217,11 @@ function projectCredits(project) {
   const seen = new Set();
   const out = [];
   for (const scene of project.scenes) {
-    if (!scene.picture || seen.has(scene.picture.src)) continue;
+    if (!scene.picture || scene.picture.source === 'generated') continue;
+    if (seen.has(scene.picture.src)) continue;
     seen.add(scene.picture.src);
-    out.push(creditLine(scene.picture));
+    const line = creditLine(scene.picture);
+    if (line) out.push(line);
   }
   return out;
 }

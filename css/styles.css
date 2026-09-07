@@ -392,3 +392,11 @@ input[type="color"] { width: 44px; height: 30px; padding: 2px; background: var(-
   padding: 0 3px;
   color: var(--ok);
 }
+
+/* -------------------------------------------------------------------- panels */
+
+.cast-list { display: flex; flex-direction: column; gap: 5px; margin: 8px 0; }
+.cast-row { display: flex; gap: 5px; align-items: center; }
+.cast-row input.cast-name { flex: 0 0 30%; }
+.cast-row button { flex: 0 0 auto; padding: 4px 8px; }
+.pane-subtitle h4, h4.pane-subtitle { margin-top: 14px; }
