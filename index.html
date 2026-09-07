@@ -107,9 +107,33 @@
         they walk there by themselves; everything between two keys is worked out for you.</p>
       <div class="field-row">
         <button id="addActorBtn" class="btn primary">+ Character</button>
-        <button id="copyActorsBtn" class="btn ghost">Copy cast to next scene</button>
+        <select id="propKind" aria-label="Prop to add"></select>
+        <button id="addPropBtn" class="btn">+ Prop</button>
+      </div>
+      <div class="field-row">
+        <button id="copyActorsBtn" class="btn ghost wide">Copy everything to next scene</button>
       </div>
       <div id="actorList" class="actor-list"></div>
+
+      <div id="propEditor" hidden>
+        <h3 class="pane-subtitle">Selected prop</h3>
+        <div class="field-grid">
+          <label class="field"><span>What</span><select id="propKindEdit"></select></label>
+          <label class="field"><span>Depth</span><select id="propLayer">
+            <option value="back">Behind everyone</option>
+            <option value="stage">Among the cast</option>
+            <option value="front">In front</option>
+          </select></label>
+          <label class="field"><span>Size <b id="propScaleValue"></b></span>
+            <input id="propScale" type="range" min="0.05" max="1.6" step="0.01"></label>
+          <label class="field"><span>Colour</span><input id="propTint" type="color"></label>
+        </div>
+        <div class="field-row">
+          <button id="flipPropBtn" class="btn ghost">Flip</button>
+          <button id="setPropKeyBtn" class="btn ghost">Set key at playhead</button>
+          <button id="removePropBtn" class="btn ghost danger">Delete prop</button>
+        </div>
+      </div>
 
       <div id="actorEditor" hidden>
         <h3 class="pane-subtitle">Selected character</h3>
@@ -383,6 +407,7 @@
 <input id="fileInput" type="file" accept="application/json,.json" hidden>
 
 <script src="js/actors.js"></script>
+<script src="js/props.js"></script>
 <script src="js/anim.js"></script>
 <script src="js/story.js"></script>
 <script src="js/images.js"></script>

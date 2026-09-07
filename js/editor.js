@@ -1005,6 +1005,17 @@ function selectedActor() {
   return stage.actors.find((a) => a.id === mrSelectedActorId) || null;
 }
 
+function selectedProp() {
+  const stage = currentStage();
+  if (!stage) return null;
+  return (stage.props || []).find((p) => p.id === mrSelectedActorId) || null;
+}
+
+// Anything selected, actor or prop — both are keyframed the same way.
+function selectedItem() {
+  return selectedActor() || selectedProp();
+}
+
 // Where the playhead is *inside* the selected scene — the time an actor's keyframes are
 // measured in, because a scene is the unit you animate.
 function localTime() {
@@ -1028,12 +1039,30 @@ function renderActorList() {
   const stage = currentStage();
   const scene = selectedScene();
   if (!stage || !scene) return;
-  if (!stage.actors.length) {
+  if (!stage.actors.length && !(stage.props || []).length) {
     const empty = document.createElement('p');
     empty.className = 'hint';
     empty.textContent = 'No one on stage yet. Add a character and drag them where you want them.';
     list.appendChild(empty);
     return;
+  }
+  for (const prop of stage.props || []) {
+    const chip = document.createElement('div');
+    chip.className = 'actor-chip' + (prop.id === mrSelectedActorId ? ' is-selected' : '');
+    const thumb = document.createElement('canvas');
+    thumb.width = 52; thumb.height = 68;
+    chip.appendChild(thumb);
+    const name = document.createElement('b');
+    name.textContent = prop.name;
+    chip.appendChild(name);
+    const meta = document.createElement('span');
+    meta.textContent = `${prop.layer} · ${prop.keys.length} key${prop.keys.length === 1 ? '' : 's'}`;
+    chip.appendChild(meta);
+    chip.addEventListener('click', () => { mrSelectedActorId = prop.id; syncAnimatePanel(); drawPreview(); });
+    list.appendChild(chip);
+    const tctx = thumb.getContext('2d');
+    tctx.clearRect(0, 0, 52, 68);
+    drawProp(tctx, prop, { x: 0.5, y: 0.92, scale: 0.8, facing: 'right', rotate: 0 }, 52, 68);
   }
   for (const actor of stage.actors) {
     const chip = document.createElement('div');
@@ -1060,14 +1089,14 @@ function renderActorList() {
 function renderKeyList() {
   const list = $('keyList');
   list.innerHTML = '';
-  const actor = selectedActor();
+  const actor = selectedItem();
   if (!actor) return;
   const now = localTime();
   for (const key of actor.keys) {
     const pill = document.createElement('button');
     pill.type = 'button';
     pill.className = 'key-pill' + (Math.abs(key.t - now) < 0.06 ? ' is-current' : '');
-    pill.textContent = `${key.t.toFixed(1)}s · ${key.action}`;
+    pill.textContent = `${key.t.toFixed(1)}s · ${actor.type === 'prop' ? 'pose' : key.action}`;
     pill.title = `x ${key.x.toFixed(2)} · size ${key.scale.toFixed(2)} · ${key.expression}`;
     pill.addEventListener('click', () => {
       const at = sceneAt(ed.project, ed.time);
@@ -1079,12 +1108,23 @@ function renderKeyList() {
 
 function syncAnimatePanel() {
   const stage = currentStage();
-  const actor = selectedActor();
-  if (stage && !actor && stage.actors.length) mrSelectedActorId = stage.actors[0].id;
+  if (stage && !selectedItem() && stage.actors.length) mrSelectedActorId = stage.actors[0].id;
   const chosen = selectedActor();
+  const prop = selectedProp();
   $('actorEditor').hidden = !chosen;
+  $('propEditor').hidden = !prop;
   renderActorList();
   renderKeyList();
+  if (prop) {
+    const state = stateAt(prop, localTime());
+    ed.suppress = true;
+    $('propKindEdit').value = prop.kind;
+    $('propLayer').value = prop.layer;
+    $('propScale').value = String(state.scale);
+    $('propScaleValue').textContent = Number(state.scale).toFixed(2);
+    $('propTint').value = prop.tint;
+    ed.suppress = false;
+  }
   if (!chosen) return;
   const state = actorStateAt(chosen, localTime());
   ed.suppress = true;
@@ -1145,12 +1185,12 @@ function wireStageDragging() {
 
   canvas.addEventListener('pointerdown', (event) => {
     const scene = selectedScene();
-    if (!scene || !scene.stage || !scene.stage.actors.length) return;
+    if (!scene || !scene.stage || (!scene.stage.actors.length && !(scene.stage.props || []).length)) return;
     const point = toFrame(event);
     const hit = actorAtPoint(scene, localTime(), point.x, point.y);
     if (!hit) return;
     mrSelectedActorId = hit.id;
-    const state = actorStateAt(hit, localTime());
+    const state = stateAt(hit, localTime());
     mrDrag = { id: hit.id, dx: state.x - point.x, dy: state.y - point.y, moved: false, before: cloneProject(ed.project) };
     canvas.setPointerCapture(event.pointerId);
     canvas.classList.add('is-dragging');
@@ -1161,7 +1201,8 @@ function wireStageDragging() {
   canvas.addEventListener('pointermove', (event) => {
     if (!mrDrag) return;
     const scene = selectedScene();
-    const actor = scene && scene.stage.actors.find((a) => a.id === mrDrag.id);
+    const actor = scene && (scene.stage.actors.find((a) => a.id === mrDrag.id) ||
+      (scene.stage.props || []).find((p) => p.id === mrDrag.id));
     if (!actor) return;
     const point = toFrame(event);
     mrDrag.moved = true;
@@ -1203,13 +1244,15 @@ function wireAnimate() {
     const i = selectedIndex();
     if (i < 0 || i >= ed.project.scenes.length - 1) return;
     // Same people, same look, first pose only — the next scene is a new performance.
-    const cast = (currentStage().actors || []).map((actor) => Object.assign({}, actor, {
-      id: undefined, keys: [Object.assign({}, actorStateAt(actor, 0), { t: 0 })]
-    }));
-    commit('copy cast forward', (p) => {
+    const stage = currentStage();
+    const firstPose = (item) => [Object.assign({}, stateAt(item, 0), { t: 0 })];
+    const cast = (stage.actors || []).map((actor) => Object.assign({}, actor, { id: undefined, keys: firstPose(actor) }));
+    const scenery = (stage.props || []).map((prop) => Object.assign({}, prop, { id: undefined, keys: firstPose(prop) }));
+    commit('copy stage forward', (p) => {
       const next = p.scenes[i + 1];
       if (!next.stage) next.stage = makeStage();
       next.stage.actors = cast.map((actor) => makeActor(actor.name, actor));
+      next.stage.props = scenery.map((prop) => Object.assign(makeProp(prop.kind, prop), { tint: prop.tint, layer: prop.layer, keys: prop.keys }));
     });
   });
 
@@ -1265,6 +1308,61 @@ function wireAnimate() {
     editActors('delete character', (stage) => {
       const i = stage.actors.findIndex((a) => a.id === actorId);
       if (i >= 0) stage.actors.splice(i, 1);
+    });
+    mrSelectedActorId = null;
+    syncAnimatePanel();
+  });
+
+  fillSelect($('propKind'), MR_PROP_KINDS, MR_PROP_KINDS.map((k) => MR_PROPS[k].name));
+  fillSelect($('propKindEdit'), MR_PROP_KINDS, MR_PROP_KINDS.map((k) => MR_PROPS[k].name));
+  $('addPropBtn').addEventListener('click', () => {
+    const kind = $('propKind').value;
+    const prop = makeProp(kind, { start: { x: 0.5, y: 0.88, scale: MR_PROPS[kind].layer === 'back' ? 0.5 : 0.3 } });
+    editActors('add prop', (stage) => { if (!stage.props) stage.props = []; stage.props.push(prop); });
+    mrSelectedActorId = prop.id;
+    syncAnimatePanel();
+  });
+
+  const editProp = (label, mutate) => {
+    const propId = mrSelectedActorId;
+    editActors(label, (stage) => {
+      const prop = (stage.props || []).find((p) => p.id === propId);
+      if (prop) mutate(prop);
+    });
+  };
+  $('propKindEdit').addEventListener('change', () => {
+    if (ed.suppress) return;
+    editProp('change prop', (prop) => { prop.kind = $('propKindEdit').value; prop.name = MR_PROPS[prop.kind].name; });
+  });
+  $('propLayer').addEventListener('change', () => {
+    if (ed.suppress) return;
+    editProp('set prop depth', (prop) => { prop.layer = $('propLayer').value; });
+  });
+  $('propTint').addEventListener('change', () => {
+    if (ed.suppress) return;
+    editProp('recolour prop', (prop) => { prop.tint = $('propTint').value; });
+  });
+  bindRange('propScale', (p, v) => {
+    const scene = p.scenes.find((s) => s.id === ed.selectedId);
+    const prop = scene && scene.stage && (scene.stage.props || []).find((x) => x.id === mrSelectedActorId);
+    if (prop) setKey(prop, localTime(), { scale: v });
+  }, (v) => { $('propScaleValue').textContent = v.toFixed(2); });
+  $('flipPropBtn').addEventListener('click', () => {
+    const prop = selectedProp();
+    if (!prop) return;
+    const facing = stateAt(prop, localTime()).facing === 'left' ? 'right' : 'left';
+    editProp('flip prop', (p) => { setKey(p, localTime(), { facing }); });
+  });
+  $('setPropKeyBtn').addEventListener('click', () => {
+    const prop = selectedProp();
+    if (!prop) return;
+    editProp('set prop keyframe', (p) => { setKey(p, localTime(), stateAt(p, localTime())); });
+  });
+  $('removePropBtn').addEventListener('click', () => {
+    const propId = mrSelectedActorId;
+    editActors('delete prop', (stage) => {
+      const i = (stage.props || []).findIndex((p) => p.id === propId);
+      if (i >= 0) stage.props.splice(i, 1);
     });
     mrSelectedActorId = null;
     syncAnimatePanel();

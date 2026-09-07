@@ -14,6 +14,7 @@ No build step, no framework, no backend, no media assets.
 index.html        — the page: three panes (story, preview, tools)
 css/styles.css    — all styling
 js/actors.js      — the puppets: rig, poses, walk/talk/point cycles, faces
+js/props.js       — the scenery: 14 procedural props, drawn in the same flat ink style
 js/anim.js        — the timeline: keyframes, interpolation, the stage, hit testing
 js/story.js       — text → storyboard: sentence splitting, beats, mood, pacing
 js/images.js      — found artwork: Wikimedia Commons search, licence filter, image cache
@@ -132,6 +133,21 @@ Open the **Animate** tab, press **+ Character**, and drag them around the previe
 - Mark one character as the speaker and their mouth moves for exactly as long as that
   scene's narration lasts.
 
+### Props and scenery
+
+Fourteen props — tree, bush, rock, mountain, chair, table, pot, doorway, house, cart,
+banner, fire, well, spear, cloud — drawn in code in the same flat style with the same ink
+outline, so they belong in the frame with the characters. Each takes a colour of your
+choosing.
+
+Props sit at one of three depths: **behind everyone**, **among the cast** (sorted by size,
+so a nearer character passes in front of a further prop) or **in front**. And because a
+prop is keyframed by exactly the same machinery as an actor, a cart can be driven across
+the stage the same way a person walks it.
+
+**Copy everything to next scene** carries the cast *and* the scenery forward with their
+first pose, which is how you keep a location consistent across a sequence.
+
 Scenes still carry a background (thirteen generated ones, or found artwork, or a drawn
 panel), so the cast has somewhere to stand, and the camera move applies to the whole stage.
 
@@ -165,6 +181,14 @@ made that way plays for you and is silently missing from the exported file.
 | --- | --- | --- |
 | OpenAI | `functions/api/voice.js` | Named voices, plus a delivery-notes field the current TTS models honour |
 | ElevenLabs | `functions/api/voice.js` | Addressed by voice id, so you paste the id of a voice you have |
+
+**Lip-sync.** When a line is narrated, the app measures its loudness thirty times a second
+and stores that envelope with the scene. Whichever character you mark as the speaker then
+opens and closes their mouth on the *actual syllables* of the recording rather than
+flapping on a timer. This is amplitude lip-sync — the technique hand-drawn animation has
+always used. It will not tell an "oo" from an "ee", and nothing here does phoneme shapes;
+what it does do is stop the mouth moving during the silences, which is most of what makes
+a talking character look alive.
 
 Roughly 1–3¢ per scene. Audio blobs live in IndexedDB beside the panels; the project file
 keeps the length and the id, which is what lets it stay small while the reel stays timed
@@ -270,11 +294,12 @@ music re-writes itself. It is mixed into the recording, not just played locally.
   provider's own error text verbatim, so a wrong field name is a one-run fix rather than a
   guessing game — but expect that first run to be where a shape problem shows up.
 - **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
-  outlines — closer to a explainer-video cast than to Pixar. Nothing here rigs a face for
-  lip-sync phonemes; the mouth flaps in time with the narration and that is the extent of
-  it.
-- **No props or scenery objects yet.** Characters stand on generated backgrounds; there is
-  no chair to sit on, no chariot to ride. Backgrounds do the world-building.
+  outlines — closer to an explainer-video cast than to Pixar.
+- **Props are scenery, not furniture you interact with.** A character can stand beside a
+  chair; there is no "sit on that chair" that snaps them into it, and no collision of any
+  kind. You place both by hand.
+- **Lip-sync is amplitude-based**, not phoneme-based: the mouth opens on loudness, so it
+  never forms an "oh". Real mouth shapes would need forced alignment against a transcript.
 - **Still pictures, not moving footage** in the *image-generation* path — A panel gets a Ken Burns move over it; nobody in
   it walks. Real motion means a video model (Veo, Kling, Runway and friends), which is a
   different kind of call — asynchronous jobs, minutes per clip, dollars rather than cents —

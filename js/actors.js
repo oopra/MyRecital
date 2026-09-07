@@ -44,7 +44,7 @@ const MR_ACTIONS = ['idle', 'talk', 'walk', 'point', 'wave', 'think', 'kneel', '
 
 function mrPoseBase() {
   return {
-    lean: 0, bob: 0, headTurn: 0, headTilt: 0,
+    lean: 0, bob: 0, drop: 0, headTurn: 0, headTilt: 0,
     shoulderL: 0.12, elbowL: 0.15, shoulderR: -0.12, elbowR: -0.15,
     hipL: 0.05, kneeL: 0, hipR: -0.05, kneeR: 0,
     mouthOpen: 0, blink: 0
@@ -100,11 +100,15 @@ function poseFor(action, t, seed, speaking) {
     case 'kneel': {
       p.hipL = 1.2; p.kneeL = 1.4; p.hipR = 0.2; p.kneeR = 1.5;
       p.lean = 0.12;
+      // Bent legs reach less far than straight ones, so the hips have to come down or the
+      // character kneels in mid-air — which is exactly what the first version did.
+      p.drop = 0.16;
       break;
     }
     case 'fall': {
       p.lean = 0.5; p.shoulderL = 0.9; p.shoulderR = -0.9;
       p.hipL = 0.4; p.hipR = -0.3; p.kneeL = 0.5;
+      p.drop = 0.04;
       break;
     }
     default:
@@ -113,8 +117,11 @@ function poseFor(action, t, seed, speaking) {
   }
 
   // Speaking overrides the mouth whatever the body is doing — an actor can talk while
-  // walking, and the mouth is what sells it.
-  if (speaking) p.mouthOpen = 0.35 + Math.abs(Math.sin(phase * 5.5 + offset)) * 0.65;
+  // walking, and the mouth is what sells it. A number is a measured loudness from the
+  // narration (true lip-sync); `true` means "speaking, but we cannot hear it", which
+  // falls back to a timed flap.
+  if (typeof speaking === 'number') p.mouthOpen = Math.max(0, Math.min(1, speaking));
+  else if (speaking) p.mouthOpen = 0.35 + Math.abs(Math.sin(phase * 5.5 + offset)) * 0.65;
   else if (action === 'talk') p.mouthOpen = 0.3 + Math.abs(Math.sin(phase * 4.5 + offset)) * 0.5;
   return p;
 }
@@ -312,7 +319,8 @@ function drawActor(ctx, actor, pose, x, groundY, height) {
   };
 
   ctx.save();
-  ctx.translate(x, groundY - pose.bob * height);
+  // `drop` lowers the whole figure so bent legs still reach the floor.
+  ctx.translate(x, groundY - pose.bob * height + (pose.drop || 0) * height);
   if (actor.facing === 'left') ctx.scale(-1, 1);
   ctx.rotate(-pose.lean * 0.5);
 

@@ -1169,6 +1169,34 @@ test('every action and expression produces a distinct pose', async () => {
   assert.equal(r.faces, r.faceCount, 'no two expressions render the same');
 });
 
+test('a kneeling character keeps their feet on the floor', async () => {
+  const r = await ev(() => {
+    // Bent legs cover less vertical distance than straight ones, so without a matching
+    // drop the figure kneels in mid-air. Measure where the lowest ink actually lands.
+    const lowestInk = (action) => {
+      const c = document.createElement('canvas');
+      c.width = 200; c.height = 300;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 200, 300);
+      const actor = makeActor('A', { top: '#1f7a53', bottom: '#4a5568' });
+      drawActor(x, actor, poseFor(action, 1.2, 3, false), 100, 260, 240);
+      const data = x.getImageData(0, 0, 200, 300).data;
+      let lowest = 0;
+      for (let y = 0; y < 300; y++) {
+        for (let px = 0; px < 200; px++) {
+          const i = (y * 200 + px) * 4;
+          if (data[i] < 200 && data[i + 1] < 200) { lowest = y; break; }
+        }
+      }
+      return lowest;
+    };
+    return { idle: lowestInk('idle'), kneel: lowestInk('kneel') };
+  });
+  // Both should end at the same floor, within a few pixels of the 260px ground line.
+  assert.ok(Math.abs(r.idle - 260) < 12, `standing feet land at ${r.idle}`);
+  assert.ok(Math.abs(r.kneel - 260) < 20, `kneeling lands at ${r.kneel}, not floating`);
+});
+
 test('the speaker mouths the narration, and only the speaker', async () => {
   const r = await ev(() => {
     const scene = buildStoryboard('She told him what she had seen.', { titleCard: false }).scenes[0];
@@ -1249,6 +1277,139 @@ test('adding and dragging a character through the UI keys them where you drop th
   await page.click('#undoBtn');
   const undone = await ev(() => actorStateAt(selectedScene().stage.actors[0], localTime()).x);
   assert.ok(Math.abs(undone - moved.before) < 0.01, 'one undo puts the whole drag back');
+  assert.deepEqual(page.__errors, []);
+});
+
+// ------------------------------------------------------------ props & lip-sync
+
+test('props use the same keyframes as actors, so scenery can move', async () => {
+  const r = await ev(() => {
+    const cart = makeProp('cart', { start: { x: 0.2, y: 0.88, scale: 0.3 } });
+    setKey(cart, 3, { x: 0.8 });
+    return {
+      start: stateAt(cart, 0).x,
+      middle: stateAt(cart, 1.5).x,
+      end: stateAt(cart, 3).x,
+      kinds: MR_PROP_KINDS.length
+    };
+  });
+  assert.equal(r.start, 0.2);
+  assert.ok(Math.abs(r.middle - 0.5) < 0.02, 'a prop tweens like an actor');
+  assert.equal(r.end, 0.8);
+  assert.ok(r.kinds >= 12, `${r.kinds} props in the library`);
+});
+
+test('depth decides what covers what', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Someone stands behind a rock.', { titleCard: false });
+    const scene = p.scenes[0];
+    scene.captionStyle = 'none';
+    scene.motion = 'none';
+    scene.duration = 3;
+    const actor = makeActor('Person', { top: '#00ff00', bottom: '#00ff00', start: { x: 0.5, y: 0.86, scale: 0.5 } });
+    const rock = makeProp('rock', { tint: '#ff0000', layer: 'front', start: { x: 0.5, y: 0.9, scale: 0.6 } });
+    scene.stage = makeStage({ actors: [actor], props: [rock] });
+
+    const sample = () => {
+      const c = document.createElement('canvas');
+      c.width = 216; c.height = 384;
+      const x = c.getContext('2d');
+      x.scale(216 / 1080, 384 / 1920);
+      renderFrame(x, p, 1.5, { width: 1080, height: 1920 });
+      // Sample the actor's knee height, where the rock overlaps.
+      const data = x.getImageData(108, Math.round(384 * 0.82), 1, 1).data;
+      return { r: data[0], g: data[1] };
+    };
+    const inFront = sample();
+    rock.layer = 'back';
+    const behind = sample();
+    return { inFront, behind, order: stageItems(scene, 1.5).map((i) => i.kind) };
+  });
+  assert.ok(r.inFront.r > 150 && r.inFront.g < 120, 'a front prop covers the actor');
+  assert.ok(r.behind.g > 150, 'a back prop is covered by the actor');
+  assert.deepEqual(r.order, ['prop', 'actor'], 'scenery is painted before the cast');
+});
+
+test('clicking a prop selects the prop', async () => {
+  const r = await ev(() => {
+    const scene = buildStoryboard('A tree beside a person.', { titleCard: false }).scenes[0];
+    const tree = makeProp('tree', { start: { x: 0.2, y: 0.9, scale: 0.5 } });
+    const actor = makeActor('Person', { start: { x: 0.7, y: 0.86, scale: 0.5 } });
+    scene.stage = makeStage({ actors: [actor], props: [tree] });
+    const onTree = actorAtPoint(scene, 0, 0.2, 0.6);
+    const onPerson = actorAtPoint(scene, 0, 0.7, 0.6);
+    return { tree: onTree && onTree.kind, person: onPerson && onPerson.name };
+  });
+  assert.equal(r.tree, 'tree');
+  assert.equal(r.person, 'Person');
+});
+
+test('lip-sync follows the measured loudness of the line, not a timer', async () => {
+  const r = await ev(async () => {
+    // A clip that is loud for its first half and silent for its second.
+    const ctx = mrAudioEnsure();
+    const rate = 8000;
+    const buffer = ctx.createBuffer(1, rate * 2, rate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < rate; i++) data[i] = Math.sin(i * 0.1) * 0.8;
+    const envelope = envelopeFrom(buffer);
+    const scene = buildStoryboard('She spoke, and then she stopped.', { titleCard: false }).scenes[0];
+    scene.narration = { id: 'n', seconds: 2, text: 'x', envelope };
+    const actor = makeActor('Speaker', { speaker: true });
+    scene.stage = makeStage({ actors: [actor] });
+    return {
+      length: envelope.length,
+      loudMouth: poseFor('idle', 0.5, 1, actorSpeaking(actor, scene, 0.5)).mouthOpen,
+      quietMouth: poseFor('idle', 1.5, 1, actorSpeaking(actor, scene, 1.5)).mouthOpen,
+      afterLine: poseFor('idle', 2.5, 1, actorSpeaking(actor, scene, 2.5)).mouthOpen
+    };
+  });
+  assert.ok(r.length > 50, `envelope sampled ${r.length} times over 2 seconds`);
+  assert.ok(r.loudMouth > 0.5, 'the mouth is open on the loud half');
+  assert.equal(r.quietMouth, 0, 'and shut through the silence — a timer could not do this');
+  assert.equal(r.afterLine, 0);
+});
+
+test('an older narration with no envelope still flaps rather than freezing', async () => {
+  const mouth = await ev(() => {
+    const scene = buildStoryboard('An old project, saved before lip-sync existed.', { titleCard: false }).scenes[0];
+    scene.narration = { id: 'n', seconds: 3, text: 'x' };      // no envelope
+    const actor = makeActor('Speaker', { speaker: true });
+    scene.stage = makeStage({ actors: [actor] });
+    return poseFor('idle', 1, 1, actorSpeaking(actor, scene, 1)).mouthOpen;
+  });
+  assert.ok(mouth > 0.2, 'falls back to the timed flap');
+});
+
+test('props survive the save file and copy forward with the cast', async () => {
+  const r = await ev(() => {
+    const scene = ed.project.scenes[0];
+    const cart = makeProp('cart', { tint: '#c2452d', layer: 'stage' });
+    setKey(cart, 2, { x: 0.8 });
+    scene.stage = makeStage({ actors: [makeActor('Driver')], props: [cart] });
+    const back = importProjectJSON(exportProjectJSON(ed.project));
+    const restored = back.scenes[0].stage.props[0];
+    return { kind: restored.kind, tint: restored.tint, keys: restored.keys.length, end: stateAt(restored, 2).x };
+  });
+  assert.equal(r.kind, 'cart');
+  assert.equal(r.tint, '#c2452d');
+  assert.equal(r.keys, 2);
+  assert.equal(r.end, 0.8);
+});
+
+test('adding a prop through the UI puts it on the stage', async () => {
+  await page.click('.tab[data-tab="animate"]');
+  await page.click('#addActorBtn');
+  await page.selectOption('#propKind', 'tree');
+  await page.click('#addPropBtn');
+  const r = await ev(() => {
+    const stage = selectedScene().stage;
+    return { props: stage.props.length, actors: stage.actors.length, selectedIsProp: !!selectedProp() };
+  });
+  assert.equal(r.props, 1);
+  assert.equal(r.actors, 1);
+  assert.equal(r.selectedIsProp, true, 'a new prop is selected so you can place it at once');
+  assert.equal(await page.locator('.actor-chip').count(), 2, 'the stage list shows cast and scenery');
   assert.deepEqual(page.__errors, []);
 });
 

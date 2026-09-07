@@ -107,12 +107,17 @@ function actorStateAt(actor, t) {
   return state;
 }
 
-// Is this actor talking right now? True while the scene's narration is playing, for
-// whichever actor is marked the speaker — which is what drives the mouth.
+// How much this actor's mouth is open right now, 0..1 (or false for "not speaking").
+// With narration it follows the measured loudness of the line — real lip-sync. Without
+// it, an actor set to "talk" falls back to the old timed flap, which is all you can do
+// with no audio to follow.
 function actorSpeaking(actor, scene, localT) {
   if (!actor.speaker) return false;
-  if (scene.narration && scene.narration.seconds) return localT < scene.narration.seconds;
-  // With no narration, an actor set to "talk" mouths for the whole beat.
+  if (scene.narration && scene.narration.seconds) {
+    if (localT >= scene.narration.seconds) return false;
+    const measured = typeof mouthAmountAt === 'function' ? mouthAmountAt(scene, localT) : null;
+    return measured != null ? measured : true;
+  }
   return actorStateAt(actor, localT).action === 'talk';
 }
 
@@ -120,20 +125,43 @@ function actorSpeaking(actor, scene, localT) {
 
 function makeStage(opts) {
   const o = opts || {};
-  return { actors: o.actors || [], ground: o.ground != null ? o.ground : 0.86 };
+  return { actors: o.actors || [], props: o.props || [], ground: o.ground != null ? o.ground : 0.86 };
+}
+
+// Props and actors share one keyframe model, so `stateAt` is the same function for both —
+// which is what lets a cart be driven across the stage exactly like a person walks it.
+const stateAt = actorStateAt;
+
+// Everything on stage, in the order it should be painted: scenery behind, then actors and
+// stage-level props by size so nearer figures cover further ones, then foreground.
+const MR_LAYER_ORDER = { back: 0, stage: 1, front: 2 };
+function stageItems(scene, t) {
+  const stage = scene.stage;
+  if (!stage) return [];
+  const items = [];
+  for (const prop of stage.props || []) {
+    items.push({ kind: 'prop', item: prop, state: stateAt(prop, t), layer: MR_LAYER_ORDER[prop.layer] != null ? MR_LAYER_ORDER[prop.layer] : 0 });
+  }
+  for (const actor of stage.actors || []) {
+    items.push({ kind: 'actor', item: actor, state: stateAt(actor, t), layer: 1 });
+  }
+  items.sort((a, b) => a.layer - b.layer || a.state.scale - b.state.scale);
+  return items;
 }
 
 // Draw every actor on a scene, back to front by size so a smaller (further) character
 // cannot cover a nearer one.
 function drawStage(ctx, scene, localT, w, h) {
-  const stage = scene.stage;
-  if (!stage || !stage.actors || !stage.actors.length) return false;
-  const ordered = stage.actors
-    .map((actor) => ({ actor, state: actorStateAt(actor, localT) }))
-    .sort((a, b) => a.state.scale - b.state.scale);
+  const items = stageItems(scene, localT);
+  if (!items.length) return false;
 
-  for (const { actor, state } of ordered) {
-    const pose = poseFor(state.action, localT, actor.seed, actorSpeaking(actor, scene, localT));
+  for (const entry of items) {
+    const { item, state } = entry;
+    if (entry.kind === 'prop') {
+      drawProp(ctx, item, state, w, h);
+      continue;
+    }
+    const pose = poseFor(state.action, localT, item.seed, actorSpeaking(item, scene, localT));
     const height = state.scale * h;
     ctx.save();
     if (state.rotate) {
@@ -149,7 +177,7 @@ function drawStage(ctx, scene, localT, w, h) {
     ctx.ellipse(state.x * w, state.y * h, height * 0.14, height * 0.022, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    drawActor(ctx, actor, pose, state.x * w, state.y * h, height);
+    drawActor(ctx, item, pose, state.x * w, state.y * h, height);
     ctx.restore();
   }
   return true;
@@ -158,16 +186,17 @@ function drawStage(ctx, scene, localT, w, h) {
 // Which actor is under a point on the frame — the editor's hit test, kept here because it
 // has to agree with how drawStage lays actors out. Nearest (largest) first.
 function actorAtPoint(scene, localT, fx, fy) {
-  const stage = scene.stage;
-  if (!stage || !stage.actors) return null;
-  const candidates = stage.actors
-    .map((actor) => ({ actor, state: actorStateAt(actor, localT) }))
-    .sort((a, b) => b.state.scale - a.state.scale);
-  for (const { actor, state } of candidates) {
-    const halfWidth = state.scale * 0.16;                   // generous: fingers are thin
-    const top = state.y - state.scale;
+  // Front to back, so clicking overlapping things picks the one you can see. Actors win
+  // ties against scenery, since scenery is usually what you are trying to click past.
+  const candidates = stageItems(scene, localT).slice().reverse();
+  for (const entry of candidates) {
+    const { item, state } = entry;
+    const spec = entry.kind === 'prop' ? MR_PROPS[item.kind] : null;
+    const ratio = spec ? spec.ratio : 0.32;                 // width as a share of height
+    const halfWidth = state.scale * Math.max(0.14, ratio / 2);
+    const top = state.y - state.scale * (spec ? 1.05 : 1);
     if (fx >= state.x - halfWidth && fx <= state.x + halfWidth && fy >= top && fy <= state.y + 0.02) {
-      return actor;
+      return item;
     }
   }
   return null;
