@@ -400,3 +400,25 @@ input[type="color"] { width: 44px; height: 30px; padding: 2px; background: var(-
 .cast-row input.cast-name { flex: 0 0 30%; }
 .cast-row button { flex: 0 0 auto; padding: 4px 8px; }
 .pane-subtitle h4, h4.pane-subtitle { margin-top: 14px; }
+
+/* ------------------------------------------------------------------- animate */
+
+.actor-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.actor-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 8px; cursor: pointer; font-size: 12px;
+}
+.actor-chip.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.actor-chip canvas { width: 26px; height: 34px; border-radius: 4px; background: #0c0d12; }
+.actor-chip b { color: var(--ink); }
+.actor-chip span { color: var(--ink-dim); margin-left: auto; }
+
+.key-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; min-height: 26px; }
+.key-pill {
+  font-size: 11px; padding: 3px 7px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim); cursor: pointer;
+}
+.key-pill.is-current { border-color: var(--accent); color: var(--ink); }
+#preview.is-stage { cursor: grab; }
+#preview.is-dragging { cursor: grabbing; }

@@ -222,6 +222,19 @@ test('the caption shrinks to fit rather than overflowing the frame', async () =>
 
 // ------------------------------------------------------------------ the editor
 
+test('every script defines its globals without colliding', async () => {
+  // These files share one global scope, so two top-level `const`s of the same name throw
+  // on load and blank the page. Cheap to check, and it has already happened once.
+  assert.deepEqual(page.__errors, [], 'no script threw while loading');
+  const present = await ev(() => [
+    typeof buildStoryboard, typeof renderFrame, typeof drawActor, typeof drawStage,
+    typeof mrAudioPlay, typeof exportVideo, typeof wireEditor, typeof searchCommons,
+    typeof generatePanelFor, typeof narrateScene
+  ]);
+  assert.deepEqual(present, new Array(present.length).fill('function'),
+    'every module finished executing and exported its entry point');
+});
+
 test('the app boots with a reel on screen and no page errors', async () => {
   const state = await ev(() => ({ scenes: ed.project.scenes.length, total: totalDuration(ed.project) }));
   assert.ok(state.scenes > 3, 'sample story built');
@@ -231,6 +244,7 @@ test('the app boots with a reel on screen and no page errors', async () => {
 });
 
 test('editing a scene repaints, and undo puts it back', async () => {
+  await page.click('.tab[data-tab="scene"]');   // Animate is the tab that opens by default
   await page.locator('.clip').nth(2).click();
   const before = await ev(() => selectedScene().background);
   await page.selectOption('#sceneBackground', 'grid');
@@ -371,6 +385,7 @@ test('changing the aspect resizes the preview canvas', async () => {
 });
 
 test('a slider drag is one undo step, and undo really puts the value back', async () => {
+  await page.click('.tab[data-tab="scene"]');
   await page.locator('.clip').nth(1).click();
   const before = await ev(() => selectedScene().duration);
   // Three input events (a drag) then one change event (mouse up), as a browser sends them.
@@ -1048,6 +1063,193 @@ test('a narrated scene survives the save file and the reel stays timed to the vo
   assert.equal(r.narration.seconds, 3.2);
   assert.equal(r.duration, 3.6);
   assert.deepEqual(r.settings, { enabled: true, voice: 'onyx' });
+});
+
+// -------------------------------------------------------------- animation
+
+test('keyframes tween position and step pose, and a move implies a walk', async () => {
+  const r = await ev(() => {
+    const actor = makeActor('Walker', { start: { x: 0.2, y: 0.86, scale: 0.5, action: 'idle', facing: 'right' } });
+    setKey(actor, 2, { x: 0.8, action: 'idle' });
+    const mid = actorStateAt(actor, 1);
+    const start = actorStateAt(actor, 0);
+    const end = actorStateAt(actor, 2);
+    const past = actorStateAt(actor, 99);
+    return { start: start.x, mid: mid.x, end: end.x, past: past.x, midAction: mid.action, endAction: end.action };
+  });
+  assert.equal(r.start, 0.2);
+  assert.ok(Math.abs(r.mid - 0.5) < 0.02, `half way across is ${r.mid}`);
+  assert.equal(r.end, 0.8);
+  assert.equal(r.past, 0.8, 'past the last key the actor holds its final pose');
+  // Nobody keys "walk" by hand when they drag someone across the stage.
+  assert.equal(r.midAction, 'walk', 'moving between two keys plays a walk cycle');
+  assert.equal(r.endAction, 'idle', 'and stops walking on arrival');
+});
+
+test('a keyframe at the same moment is updated, not duplicated', async () => {
+  const r = await ev(() => {
+    const actor = makeActor('A');
+    setKey(actor, 1.5, { x: 0.4 });
+    setKey(actor, 1.52, { x: 0.6 });     // the same instant, as far as a person is concerned
+    setKey(actor, 3, { x: 0.9 });
+    return { count: actor.keys.length, at15: actorStateAt(actor, 1.5).x, sorted: actor.keys.map((k) => k.t) };
+  });
+  assert.equal(r.count, 3, 'one starting key plus two real ones');
+  assert.ok(Math.abs(r.at15 - 0.6) < 0.001, 'the second edit replaced the first');
+  assert.deepEqual(r.sorted, [...r.sorted].sort((a, b) => a - b), 'keys stay in time order');
+});
+
+test('an actor always keeps at least one pose', async () => {
+  const r = await ev(() => {
+    const actor = makeActor('A');
+    const removedOnly = removeKey(actor, 0);
+    setKey(actor, 2, { x: 0.7 });
+    const removedSecond = removeKey(actor, 2);
+    return { removedOnly, removedSecond, left: actor.keys.length };
+  });
+  assert.equal(r.removedOnly, false, 'the last keyframe cannot be deleted');
+  assert.equal(r.removedSecond, true);
+  assert.equal(r.left, 1);
+});
+
+test('actors are drawn on the stage, in depth order, and move over time', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Two people meet on a road at dusk.', { titleCard: false });
+    const scene = p.scenes[0];
+    scene.captionStyle = 'none';
+    scene.motion = 'none';
+    scene.duration = 4;
+    const walker = makeActor('Walker', { top: '#ff0000', start: { x: 0.15, y: 0.86, scale: 0.5 } });
+    setKey(walker, 4, { x: 0.85 });
+    scene.stage = makeStage({ actors: [walker] });
+
+    const columnAt = (t, col) => {
+      const c = document.createElement('canvas');
+      c.width = 216; c.height = 384;
+      const x = c.getContext('2d');
+      x.scale(216 / 1080, 384 / 1920);
+      renderFrame(x, p, t, { width: 1080, height: 1920 });
+      const data = x.getImageData(Math.round(col * 216), 0, 1, 384).data;
+      let red = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] > 150 && data[i + 1] < 90) red++;
+      return red;
+    };
+    return {
+      leftEarly: columnAt(0.6, 0.15), rightEarly: columnAt(0.6, 0.85),
+      leftLate: columnAt(3.6, 0.15), rightLate: columnAt(3.6, 0.85)
+    };
+  });
+  assert.ok(r.leftEarly > 0, 'the actor starts on the left');
+  assert.ok(r.rightEarly === 0, 'and is not yet on the right');
+  assert.ok(r.rightLate > 0, 'by the end they have walked across');
+  assert.ok(r.leftLate === 0, 'and left where they started');
+});
+
+test('every action and expression produces a distinct pose', async () => {
+  const r = await ev(() => {
+    const shot = (make) => {
+      const c = document.createElement('canvas');
+      c.width = 90; c.height = 140;
+      const x = c.getContext('2d');
+      const actor = makeActor('A', { top: '#3a5cc8' });
+      make(actor);
+      drawActor(x, actor, poseFor(actor.__action || 'idle', 0.7, 5, false), 45, 136, 128);
+      return c.toDataURL();
+    };
+    const actions = {};
+    for (const action of MR_ACTIONS) actions[action] = shot((a) => { a.__action = action; });
+    const faces = {};
+    for (const expression of Object.keys(MR_EXPRESSIONS)) faces[expression] = shot((a) => { a.expression = expression; });
+    return {
+      actions: new Set(Object.values(actions)).size, actionCount: MR_ACTIONS.length,
+      faces: new Set(Object.values(faces)).size, faceCount: Object.keys(MR_EXPRESSIONS).length
+    };
+  });
+  assert.equal(r.actions, r.actionCount, 'no two actions render the same');
+  assert.equal(r.faces, r.faceCount, 'no two expressions render the same');
+});
+
+test('the speaker mouths the narration, and only the speaker', async () => {
+  const r = await ev(() => {
+    const scene = buildStoryboard('She told him what she had seen.', { titleCard: false }).scenes[0];
+    const speaker = makeActor('Speaker', { speaker: true });
+    const listener = makeActor('Listener');
+    scene.stage = makeStage({ actors: [speaker, listener] });
+    scene.narration = { id: 'n', seconds: 2, text: 'x' };
+    const during = {
+      speaker: poseFor('idle', 0.5, 1, actorSpeaking(speaker, scene, 0.5)).mouthOpen,
+      listener: poseFor('idle', 0.5, 1, actorSpeaking(listener, scene, 0.5)).mouthOpen
+    };
+    const after = poseFor('idle', 3, 1, actorSpeaking(speaker, scene, 3)).mouthOpen;
+    return { during, after };
+  });
+  assert.ok(r.during.speaker > 0.2, 'the speaker\'s mouth is moving');
+  assert.equal(r.during.listener, 0, 'the listener\'s is not');
+  assert.equal(r.after, 0, 'and it stops when the line ends');
+});
+
+test('clicking a character on the stage picks that character', async () => {
+  const r = await ev(() => {
+    const scene = buildStoryboard('Two figures stand apart.', { titleCard: false }).scenes[0];
+    const left = makeActor('Left', { start: { x: 0.25, y: 0.86, scale: 0.5 } });
+    const right = makeActor('Right', { start: { x: 0.75, y: 0.86, scale: 0.5 } });
+    scene.stage = makeStage({ actors: [left, right] });
+    return {
+      onLeft: (actorAtPoint(scene, 0, 0.25, 0.6) || {}).name,
+      onRight: (actorAtPoint(scene, 0, 0.75, 0.6) || {}).name,
+      onNobody: actorAtPoint(scene, 0, 0.5, 0.2)
+    };
+  });
+  assert.equal(r.onLeft, 'Left');
+  assert.equal(r.onRight, 'Right');
+  assert.equal(r.onNobody, null, 'empty stage space selects nobody');
+});
+
+test('a whole cast survives the save file', async () => {
+  const r = await ev(() => {
+    const scene = ed.project.scenes[0];
+    const actor = makeActor('Arjuna', { body: 'tall', hairStyle: 'bun', top: '#1f7a53', speaker: true });
+    setKey(actor, 1.5, { x: 0.7, action: 'point', expression: 'angry' });
+    scene.stage = makeStage({ actors: [actor] });
+    const back = importProjectJSON(exportProjectJSON(ed.project));
+    const restored = back.scenes[0].stage.actors[0];
+    return {
+      name: restored.name, body: restored.body, speaker: restored.speaker,
+      keys: restored.keys.length, action: actorStateAt(restored, 1.5).action
+    };
+  });
+  assert.equal(r.name, 'Arjuna');
+  assert.equal(r.body, 'tall');
+  assert.equal(r.speaker, true);
+  assert.equal(r.keys, 2);
+  assert.equal(r.action, 'point');
+});
+
+test('adding and dragging a character through the UI keys them where you drop them', async () => {
+  await page.click('.tab[data-tab="animate"]');
+  await page.click('#addActorBtn');
+  assert.equal(await page.locator('.actor-chip').count(), 1);
+
+  const moved = await ev(async () => {
+    const canvas = document.getElementById('preview');
+    const rect = canvas.getBoundingClientRect();
+    const actor = selectedScene().stage.actors[0];
+    const before = actorStateAt(actor, localTime()).x;
+    const send = (type, fx, fy) => canvas.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, pointerId: 1,
+      clientX: rect.left + rect.width * fx, clientY: rect.top + rect.height * fy
+    }));
+    // Grab the actor where they stand, drag right, release.
+    send('pointerdown', before, 0.7);
+    send('pointermove', before + 0.25, 0.7);
+    send('pointerup', before + 0.25, 0.7);
+    return { before, after: actorStateAt(selectedScene().stage.actors[0], localTime()).x };
+  });
+  assert.ok(moved.after > moved.before + 0.15, `dragged from ${moved.before} to ${moved.after}`);
+  await page.click('#undoBtn');
+  const undone = await ev(() => actorStateAt(selectedScene().stage.actors[0], localTime()).x);
+  assert.ok(Math.abs(undone - moved.before) < 0.01, 'one undo puts the whole drag back');
+  assert.deepEqual(page.__errors, []);
 });
 
 test('the reel reloads from local storage on the next visit', async () => {

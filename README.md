@@ -1,14 +1,20 @@
 # MyRecital
 
-Paste a story, get an animated vertical short — then change anything about it and record
-the result as a video file you can upload to YouTube.
+An animation tool for YouTube videos. Put characters on a stage, move them, give them
+actions and expressions, keyframe the moments that matter — then record it as a video file.
 
-No build step, no framework, no backend, no media assets. Every pixel and every note is
-generated in the browser from your text.
+Characters are drawn, not generated: a small skeleton plus a colour scheme, painted fresh
+every frame from joint angles. That is what makes them animatable, and it is why the whole
+thing needs no API key, no account and no cost. A story can also be pasted in to lay out
+the scenes and captions for you, but the animation is the point.
+
+No build step, no framework, no backend, no media assets.
 
 ```
 index.html        — the page: three panes (story, preview, tools)
 css/styles.css    — all styling
+js/actors.js      — the puppets: rig, poses, walk/talk/point cycles, faces
+js/anim.js        — the timeline: keyframes, interpolation, the stage, hit testing
 js/story.js       — text → storyboard: sentence splitting, beats, mood, pacing
 js/images.js      — found artwork: Wikimedia Commons search, licence filter, image cache
 js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
@@ -70,6 +76,7 @@ draws differently. Nothing is ever "re-rendered" until you record.
 
 | Per scene | Globally |
 | --- | --- |
+| Cast, poses, expressions, keyframes | — |
 | Caption text, duration | Palette (8), typeface (5) |
 | Background (13), camera move (8) | Aspect: 9:16, 1:1, 16:9 · 24/30/60 fps |
 | Transition in (6), caption style (5) | Grain, vignette, camera amount |
@@ -100,6 +107,33 @@ scene · `s` split · `delete` remove scene · `ctrl/cmd+Z` undo.
 - **Project** — plain JSON, so a reel can be reopened, diffed or handed to someone else.
 - **Upload kit** — a title, a description built from the story, and tags pulled from its
   own most-used words, each with a copy button.
+
+## Animating
+
+Open the **Animate** tab, press **+ Character**, and drag them around the preview.
+
+- **A character is a rig, not a picture.** Five body types, six skin tones, five hair
+  styles, four colours you pick — and eight actions (idle, talk, walk, point, wave, think,
+  kneel, fall) and six expressions that are all drawn from joint angles rather than stored
+  as frames. Everyone breathes and blinks whatever else they are doing, because stillness
+  reads as dead.
+- **Keyframes are moments.** Drag a character somewhere and that lands a key at the
+  playhead; everything between two keys is worked out for you. Position and size ease
+  between keys because that is motion; action, expression and facing hold and then switch,
+  because nobody is 40% waving.
+- **Move someone across the stage and they walk there.** If two keys have different
+  positions and no action was set, the walk cycle plays and the character faces the way
+  they are going — the commonest thing you want and the commonest thing you forget to key.
+- **Appearance versus performance.** Body, hair and colours belong to the character and
+  apply everywhere; pose, mood, position and size belong to this instant and become
+  keyframes. That distinction is the whole mental model of the tool.
+- **Copy cast to next scene** carries the same people, same look, first pose only — the
+  next scene is a new performance.
+- Mark one character as the speaker and their mouth moves for exactly as long as that
+  scene's narration lasts.
+
+Scenes still carry a background (thirteen generated ones, or found artwork, or a drawn
+panel), so the cast has somewhere to stand, and the camera move applies to the whole stage.
 
 ## Two presentations: words-first or picture-first
 
@@ -235,7 +269,13 @@ music re-writes itself. It is mixed into the recording, not just played locally.
   no key exists in the environment they were built in. Every adapter therefore surfaces the
   provider's own error text verbatim, so a wrong field name is a one-run fix rather than a
   guessing game — but expect that first run to be where a shape problem shows up.
-- **Still pictures, not moving footage.** A panel gets a Ken Burns move over it; nobody in
+- **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
+  outlines — closer to a explainer-video cast than to Pixar. Nothing here rigs a face for
+  lip-sync phonemes; the mouth flaps in time with the narration and that is the extent of
+  it.
+- **No props or scenery objects yet.** Characters stand on generated backgrounds; there is
+  no chair to sit on, no chariot to ride. Backgrounds do the world-building.
+- **Still pictures, not moving footage** in the *image-generation* path — A panel gets a Ken Burns move over it; nobody in
   it walks. Real motion means a video model (Veo, Kling, Runway and friends), which is a
   different kind of call — asynchronous jobs, minutes per clip, dollars rather than cents —
   and is not wired up.

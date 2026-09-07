@@ -328,7 +328,9 @@ function makeScene(text, opts) {
     panel: o.panel || null,
     // Narration: { id, seconds, text } — the audio lives in IndexedDB too, and its length
     // is what sets this scene's duration.
-    narration: o.narration || null
+    narration: o.narration || null,
+    // The animation: actors and their keyframes for this scene.
+    stage: o.stage || (typeof makeStage === 'function' ? makeStage() : { actors: [], ground: 0.86 })
   };
 }
 

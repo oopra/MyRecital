@@ -66,6 +66,7 @@ function afterChange() {
   syncPicturePanel();
   syncPanelControls();
   syncNarrationControls();
+  syncAnimatePanel();
   syncPublishKit();
   drawPreview();
   updateTransport();
@@ -183,6 +184,7 @@ function seek(seconds) {
   drawPreview();
   updateTransport();
   highlightPlayhead();
+  if (!ed.playing) renderKeyList();
 }
 
 // ---------------------------------------------------------------- timeline
@@ -985,6 +987,292 @@ function wirePanels() {
   $('cancelDrawBtn').addEventListener('click', () => { if (mrDrawing) mrDrawing.abort(); });
 }
 
+// ---------------------------------------------------------------- animating
+
+let mrSelectedActorId = null;
+let mrDrag = null;
+
+function currentStage() {
+  const scene = selectedScene();
+  if (!scene) return null;
+  if (!scene.stage) scene.stage = makeStage();
+  return scene.stage;
+}
+
+function selectedActor() {
+  const stage = currentStage();
+  if (!stage) return null;
+  return stage.actors.find((a) => a.id === mrSelectedActorId) || null;
+}
+
+// Where the playhead is *inside* the selected scene — the time an actor's keyframes are
+// measured in, because a scene is the unit you animate.
+function localTime() {
+  const at = sceneAt(ed.project, ed.time);
+  return at ? at.local : 0;
+}
+
+function editActors(label, mutate) {
+  const sceneId = ed.selectedId;
+  commit(label, (p) => {
+    const scene = p.scenes.find((s) => s.id === sceneId);
+    if (!scene) return;
+    if (!scene.stage) scene.stage = makeStage();
+    mutate(scene.stage, scene);
+  });
+}
+
+function renderActorList() {
+  const list = $('actorList');
+  list.innerHTML = '';
+  const stage = currentStage();
+  const scene = selectedScene();
+  if (!stage || !scene) return;
+  if (!stage.actors.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.textContent = 'No one on stage yet. Add a character and drag them where you want them.';
+    list.appendChild(empty);
+    return;
+  }
+  for (const actor of stage.actors) {
+    const chip = document.createElement('div');
+    chip.className = 'actor-chip' + (actor.id === mrSelectedActorId ? ' is-selected' : '');
+    const thumb = document.createElement('canvas');
+    thumb.width = 52; thumb.height = 68;
+    chip.appendChild(thumb);
+    const name = document.createElement('b');
+    name.textContent = actor.name;
+    chip.appendChild(name);
+    const meta = document.createElement('span');
+    const state = actorStateAt(actor, localTime());
+    meta.textContent = `${state.action} · ${actor.keys.length} key${actor.keys.length === 1 ? '' : 's'}`;
+    chip.appendChild(meta);
+    chip.addEventListener('click', () => { mrSelectedActorId = actor.id; syncAnimatePanel(); drawPreview(); });
+    list.appendChild(chip);
+    // Draw the actor into their own chip, so the cast list is faces rather than names.
+    const tctx = thumb.getContext('2d');
+    tctx.clearRect(0, 0, 52, 68);
+    drawActor(tctx, actor, poseFor('idle', 0.4, actor.seed, false), 26, 66, 62);
+  }
+}
+
+function renderKeyList() {
+  const list = $('keyList');
+  list.innerHTML = '';
+  const actor = selectedActor();
+  if (!actor) return;
+  const now = localTime();
+  for (const key of actor.keys) {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'key-pill' + (Math.abs(key.t - now) < 0.06 ? ' is-current' : '');
+    pill.textContent = `${key.t.toFixed(1)}s · ${key.action}`;
+    pill.title = `x ${key.x.toFixed(2)} · size ${key.scale.toFixed(2)} · ${key.expression}`;
+    pill.addEventListener('click', () => {
+      const at = sceneAt(ed.project, ed.time);
+      seek((at ? at.start : 0) + key.t);
+    });
+    list.appendChild(pill);
+  }
+}
+
+function syncAnimatePanel() {
+  const stage = currentStage();
+  const actor = selectedActor();
+  if (stage && !actor && stage.actors.length) mrSelectedActorId = stage.actors[0].id;
+  const chosen = selectedActor();
+  $('actorEditor').hidden = !chosen;
+  renderActorList();
+  renderKeyList();
+  if (!chosen) return;
+  const state = actorStateAt(chosen, localTime());
+  ed.suppress = true;
+  $('actorName').value = chosen.name;
+  $('actorAction').value = state.action;
+  $('actorExpression').value = state.expression;
+  $('actorFacing').value = state.facing;
+  $('actorBody').value = chosen.body;
+  $('actorHairStyle').value = chosen.hairStyle;
+  $('actorScale').value = String(state.scale);
+  $('actorScaleValue').textContent = Number(state.scale).toFixed(2);
+  $('actorSkin').value = chosen.skin;
+  $('actorHair').value = chosen.hair;
+  $('actorTop').value = chosen.top;
+  $('actorBottom').value = chosen.bottom;
+  $('actorSpeaker').checked = !!chosen.speaker;
+  ed.suppress = false;
+}
+
+// Change something about the actor *at the playhead*: appearance is a property of the
+// character, but pose, position and mood are properties of this moment, so they land on a
+// keyframe. That distinction is the whole mental model of the tool.
+function setActorProperty(label, values, appearance) {
+  const actorId = mrSelectedActorId;
+  const t = localTime();
+  editActors(label, (stage) => {
+    const actor = stage.actors.find((a) => a.id === actorId);
+    if (!actor) return;
+    if (appearance) Object.assign(actor, values);
+    else setKey(actor, t, values);
+  });
+}
+
+function addActor() {
+  const stage = currentStage();
+  if (!stage) return;
+  const index = stage.actors.length;
+  const actor = makeActor(`Character ${index + 1}`, {
+    skin: MR_SKINS[index % MR_SKINS.length],
+    hair: MR_HAIRS[index % MR_HAIRS.length],
+    hairStyle: MR_HAIR_STYLES[index % MR_HAIR_STYLES.length],
+    top: ['#c2452d', '#1f7a53', '#3a5cc8', '#7a4bff', '#e0a33f'][index % 5],
+    // Spread new arrivals across the stage rather than stacking them on one spot.
+    start: { x: 0.3 + (index % 3) * 0.2, y: 0.86, scale: 0.5 }
+  });
+  editActors('add character', (stage) => { stage.actors.push(actor); });
+  mrSelectedActorId = actor.id;
+  syncAnimatePanel();
+}
+
+// Dragging on the preview moves whoever is under the pointer and keys them there.
+function wireStageDragging() {
+  const canvas = $('preview');
+  const toFrame = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
+  };
+
+  canvas.addEventListener('pointerdown', (event) => {
+    const scene = selectedScene();
+    if (!scene || !scene.stage || !scene.stage.actors.length) return;
+    const point = toFrame(event);
+    const hit = actorAtPoint(scene, localTime(), point.x, point.y);
+    if (!hit) return;
+    mrSelectedActorId = hit.id;
+    const state = actorStateAt(hit, localTime());
+    mrDrag = { id: hit.id, dx: state.x - point.x, dy: state.y - point.y, moved: false, before: cloneProject(ed.project) };
+    canvas.setPointerCapture(event.pointerId);
+    canvas.classList.add('is-dragging');
+    syncAnimatePanel();
+    drawPreview();
+  });
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (!mrDrag) return;
+    const scene = selectedScene();
+    const actor = scene && scene.stage.actors.find((a) => a.id === mrDrag.id);
+    if (!actor) return;
+    const point = toFrame(event);
+    mrDrag.moved = true;
+    // Live, without an undo entry per pixel — the entry is pushed once on release.
+    setKey(actor, localTime(), {
+      x: Math.max(0.02, Math.min(0.98, point.x + mrDrag.dx)),
+      y: Math.max(0.15, Math.min(1, point.y + mrDrag.dy))
+    });
+    drawPreview();
+  });
+
+  const endDrag = (event) => {
+    if (!mrDrag) return;
+    canvas.classList.remove('is-dragging');
+    if (event && event.pointerId != null && canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    if (mrDrag.moved) {
+      ed.history.push({ label: 'move character', project: mrDrag.before });
+      if (ed.history.length > MR_HISTORY_LIMIT) ed.history.shift();
+      ed.future.length = 0;
+      afterChange();
+    }
+    mrDrag = null;
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+}
+
+function wireAnimate() {
+  fillSelect($('actorAction'), MR_ACTIONS);
+  fillSelect($('actorExpression'), Object.keys(MR_EXPRESSIONS));
+  const bodies = Object.keys(MR_BODIES);
+  fillSelect($('actorBody'), bodies, bodies.map((b) => MR_BODIES[b].name));
+  fillSelect($('actorHairStyle'), MR_HAIR_STYLES);
+
+  $('addActorBtn').addEventListener('click', addActor);
+  $('copyActorsBtn').addEventListener('click', () => {
+    const i = selectedIndex();
+    if (i < 0 || i >= ed.project.scenes.length - 1) return;
+    // Same people, same look, first pose only — the next scene is a new performance.
+    const cast = (currentStage().actors || []).map((actor) => Object.assign({}, actor, {
+      id: undefined, keys: [Object.assign({}, actorStateAt(actor, 0), { t: 0 })]
+    }));
+    commit('copy cast forward', (p) => {
+      const next = p.scenes[i + 1];
+      if (!next.stage) next.stage = makeStage();
+      next.stage.actors = cast.map((actor) => makeActor(actor.name, actor));
+    });
+  });
+
+  // Pose, mood, facing, position and size are moments — they become keyframes.
+  for (const [id, prop] of [['actorAction', 'action'], ['actorExpression', 'expression'], ['actorFacing', 'facing']]) {
+    $(id).addEventListener('change', () => {
+      if (ed.suppress) return;
+      setActorProperty('set ' + prop, { [prop]: $(id).value }, false);
+    });
+  }
+  // Body, hair and colours are the character themselves — they apply to the whole reel.
+  for (const [id, prop] of [['actorBody', 'body'], ['actorHairStyle', 'hairStyle'], ['actorSkin', 'skin'],
+    ['actorHair', 'hair'], ['actorTop', 'top'], ['actorBottom', 'bottom']]) {
+    $(id).addEventListener('change', () => {
+      if (ed.suppress) return;
+      setActorProperty('restyle character', { [prop]: $(id).value }, true);
+    });
+  }
+  $('actorName').addEventListener('change', () => {
+    if (ed.suppress) return;
+    setActorProperty('rename character', { name: $('actorName').value }, true);
+  });
+  $('actorSpeaker').addEventListener('change', () => {
+    if (ed.suppress) return;
+    const speaker = $('actorSpeaker').checked;
+    const actorId = mrSelectedActorId;
+    // Only one mouth moves at a time, or the scene looks like a chorus.
+    editActors('set speaker', (stage) => {
+      for (const actor of stage.actors) actor.speaker = speaker && actor.id === actorId;
+    });
+  });
+  bindRange('actorScale', (p, v) => {
+    const scene = p.scenes.find((s) => s.id === ed.selectedId);
+    const actor = scene && scene.stage && scene.stage.actors.find((a) => a.id === mrSelectedActorId);
+    if (actor) setKey(actor, localTime(), { scale: v });
+  }, (v) => { $('actorScaleValue').textContent = v.toFixed(2); });
+
+  $('setKeyBtn').addEventListener('click', () => {
+    const actor = selectedActor();
+    if (!actor) return;
+    setActorProperty('set keyframe', actorStateAt(actor, localTime()), false);
+  });
+  $('removeKeyBtn').addEventListener('click', () => {
+    const t = localTime();
+    setActorProperty('remove keyframe', {}, true);   // no-op values; the removal is below
+    editActors('remove keyframe', (stage) => {
+      const actor = stage.actors.find((a) => a.id === mrSelectedActorId);
+      if (actor) removeKey(actor, t);
+    });
+  });
+  $('removeActorBtn').addEventListener('click', () => {
+    const actorId = mrSelectedActorId;
+    editActors('delete character', (stage) => {
+      const i = stage.actors.findIndex((a) => a.id === actorId);
+      if (i >= 0) stage.actors.splice(i, 1);
+    });
+    mrSelectedActorId = null;
+    syncAnimatePanel();
+  });
+
+  wireStageDragging();
+}
+
 // ---------------------------------------------------------------- narration
 
 let mrNarrating = null;
@@ -1302,6 +1590,7 @@ function wireEditor() {
   wirePictures();
   wirePanels();
   wireNarration();
+  wireAnimate();
 
   $('buildBtn').addEventListener('click', buildFromText);
   $('sampleBtn').addEventListener('click', () => {

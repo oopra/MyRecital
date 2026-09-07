@@ -93,14 +93,57 @@
     <h2 id="inspectHeading" class="pane-title">3 · Tune it</h2>
 
     <div class="tabs" role="tablist">
-      <button class="tab is-active" role="tab" data-tab="scene" aria-selected="true">Scene</button>
+      <button class="tab is-active" role="tab" data-tab="animate" aria-selected="true">Animate</button>
+      <button class="tab" role="tab" data-tab="scene" aria-selected="false">Scene</button>
       <button class="tab" role="tab" data-tab="picture" aria-selected="false">Art</button>
       <button class="tab" role="tab" data-tab="look" aria-selected="false">Look</button>
       <button class="tab" role="tab" data-tab="sound" aria-selected="false">Sound</button>
       <button class="tab" role="tab" data-tab="export" aria-selected="false">Export</button>
     </div>
 
-    <div class="tab-panel is-active" data-panel="scene">
+
+    <div class="tab-panel is-active" data-panel="animate">
+      <p class="hint">Drag a character on the preview to move them. Set a keyframe at the playhead and
+        they walk there by themselves; everything between two keys is worked out for you.</p>
+      <div class="field-row">
+        <button id="addActorBtn" class="btn primary">+ Character</button>
+        <button id="copyActorsBtn" class="btn ghost">Copy cast to next scene</button>
+      </div>
+      <div id="actorList" class="actor-list"></div>
+
+      <div id="actorEditor" hidden>
+        <h3 class="pane-subtitle">Selected character</h3>
+        <label class="field block"><span>Name</span><input id="actorName" type="text"></label>
+        <div class="field-grid">
+          <label class="field"><span>Doing</span><select id="actorAction"></select></label>
+          <label class="field"><span>Feeling</span><select id="actorExpression"></select></label>
+          <label class="field"><span>Facing</span><select id="actorFacing">
+            <option value="right">Right</option><option value="left">Left</option>
+          </select></label>
+          <label class="field"><span>Body</span><select id="actorBody"></select></label>
+          <label class="field"><span>Hair</span><select id="actorHairStyle"></select></label>
+          <label class="field"><span>Size <b id="actorScaleValue"></b></span>
+            <input id="actorScale" type="range" min="0.15" max="1.1" step="0.01"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>Skin</span><input id="actorSkin" type="color"></label>
+          <label class="field"><span>Hair colour</span><input id="actorHair" type="color"></label>
+          <label class="field"><span>Top</span><input id="actorTop" type="color"></label>
+          <label class="field"><span>Legs</span><input id="actorBottom" type="color"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="actorSpeaker"> This one speaks the narration</label>
+
+        <h3 class="pane-subtitle">Keyframes</h3>
+        <div id="keyList" class="key-list"></div>
+        <div class="field-row">
+          <button id="setKeyBtn" class="btn">Set key at playhead</button>
+          <button id="removeKeyBtn" class="btn ghost">Remove key here</button>
+          <button id="removeActorBtn" class="btn ghost danger">Delete character</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-panel="scene">
       <div id="noScene" class="empty">Pick a scene on the timeline.</div>
       <div id="sceneEditor" hidden>
         <label class="field block">
@@ -339,6 +382,8 @@
 
 <input id="fileInput" type="file" accept="application/json,.json" hidden>
 
+<script src="js/actors.js"></script>
+<script src="js/anim.js"></script>
 <script src="js/story.js"></script>
 <script src="js/images.js"></script>
 <script src="js/generate.js"></script>

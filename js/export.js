@@ -175,7 +175,7 @@ function importProjectJSON(text) {
       captionStyle: scene.captionStyle, captionPosition: scene.captionPosition, emphasis: scene.emphasis,
       accent: scene.accent, intensity: scene.intensity, duration: scene.duration, seed: scene.seed, kind: scene.kind,
       picture: scene.picture, pictureFit: scene.pictureFit, pictureFocus: scene.pictureFocus, pictureGrade: scene.pictureGrade,
-      panel: scene.panel, narration: scene.narration
+      panel: scene.panel, narration: scene.narration, stage: scene.stage
     }), { id: scene.id || undefined }))
   };
   for (const scene of project.scenes) if (!scene.id) scene.id = mrSceneId();
