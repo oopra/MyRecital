@@ -38,7 +38,7 @@ const MR_FONTS = {
 const MR_BACKGROUNDS = ['gradient', 'starfield', 'aurora', 'rain', 'embers', 'waves', 'city', 'forest', 'orbit', 'mist', 'grid', 'confetti', 'corridor'];
 const MR_MOTIONS = ['none', 'zoom', 'pull', 'pan', 'drift', 'bob', 'push', 'shake'];
 const MR_TRANSITIONS = ['cut', 'fade', 'dissolve', 'slide', 'wipe', 'flash'];
-const MR_CAPTION_STYLES = ['kinetic', 'karaoke', 'block', 'dialogue', 'title', 'none'];
+const MR_CAPTION_STYLES = ['subtitle', 'kinetic', 'karaoke', 'block', 'dialogue', 'title', 'none'];
 const MR_TRANSITION_SECONDS = 0.42;
 
 function paletteOf(project) {
@@ -576,7 +576,13 @@ function mrIsEmphasised(word, emphasis) {
 }
 
 // The caption box: a safe area that keeps text clear of the phone UI and the progress bar.
-function captionBox(w, h, position) {
+function captionBox(w, h, position, style) {
+  // A subtitle is furniture: low, narrow, out of the way of faces. A kinetic caption is
+  // the performance itself and gets the middle of the frame.
+  if (style === 'subtitle') {
+    const marginX = w * 0.07;
+    return { x: marginX, y: h * 0.74, w: w - marginX * 2, h: h * 0.16 };
+  }
   const marginX = w * 0.09;
   const boxW = w - marginX * 2;
   const boxH = h * 0.42;
@@ -592,12 +598,13 @@ function drawCaption(ctx, project, scene, localT, w, h) {
   const font = fontOf(project);
   const colors = paletteOf(project);
   const accent = accentOf(project, scene);
-  const box = captionBox(w, h, scene.captionPosition);
+  const isSubtitle = scene.captionStyle === 'subtitle';
+  const box = captionBox(w, h, scene.captionPosition, scene.captionStyle);
   const isTitle = scene.captionStyle === 'title';
   const fit = fitCaption(ctx, scene.text, font, box, {
-    maxSize: isTitle ? h * 0.11 : h * 0.062,
-    minSize: h * 0.028,
-    maxLines: isTitle ? 3 : 5
+    maxSize: isTitle ? h * 0.11 : isSubtitle ? h * 0.032 : h * 0.062,
+    minSize: isSubtitle ? h * 0.02 : h * 0.028,
+    maxLines: isTitle ? 3 : isSubtitle ? 3 : 5
   });
   const lineHeight = fit.size * 1.18;
   const totalHeight = fit.lines.length * lineHeight;
@@ -615,7 +622,7 @@ function drawCaption(ctx, project, scene, localT, w, h) {
   // background, which matters because these backgrounds are generated, not curated. One
   // rounded bar per line, hugging the words: a single full-width rectangle reads as a
   // grey box sitting on the picture, which is exactly what a caption should not do.
-  if (scene.captionStyle !== 'title' && scene.captionStyle !== 'none') {
+  if (scene.captionStyle !== 'title' && scene.captionStyle !== 'none' && !isSubtitle) {
     const padX = fit.size * 0.34, padY = fit.size * 0.16;
     const plateAlpha = (light ? 0.55 : 0.34) * mrClamp01((scene.duration - localT) / 0.28);
     ctx.fillStyle = mrRgba(plateInk, plateAlpha);
@@ -650,7 +657,9 @@ function drawCaption(ctx, project, scene, localT, w, h) {
       const emphasised = mrIsEmphasised(word, scene.emphasis);
       let alpha = 1, dy = 0, scale = 1;
 
-      if (scene.captionStyle === 'kinetic') {
+      if (isSubtitle) {
+        alpha = mrClamp01(localT / 0.18);
+      } else if (scene.captionStyle === 'kinetic') {
         const p = mrClamp01(age / 0.32);
         alpha = p;
         dy = (1 - mrEaseOut(p)) * fit.size * 0.5;
@@ -677,7 +686,8 @@ function drawCaption(ctx, project, scene, localT, w, h) {
       ctx.globalAlpha = Math.max(0, alpha);
       ctx.translate(cx, y + dy);
       ctx.scale(scale, scale);
-      const highlight = emphasised || (scene.captionStyle === 'karaoke' && age >= 0 && age < perWord * 1.4);
+      const highlight = !isSubtitle &&
+        (emphasised || (scene.captionStyle === 'karaoke' && age >= 0 && age < perWord * 1.4));
       ctx.shadowColor = light ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)';
       ctx.shadowBlur = fit.size * 0.25;
       ctx.shadowOffsetY = fit.size * 0.04;

@@ -251,9 +251,52 @@
       <div class="field-row">
         <button id="applyLookAllBtn" class="btn ghost">Apply this scene's camera to all</button>
       </div>
+      <h3 class="pane-subtitle">Presentation</h3>
+      <div class="field-row">
+        <button id="peopleModeBtn" class="btn wide">Picture-first: shrink captions to subtitles</button>
+        <button id="wordsModeBtn" class="btn ghost">Words-first</button>
+      </div>
+      <p class="hint">Picture-first puts the text at subtitle size along the bottom, turns off the
+        emphasis colouring and the word-by-word reveal, and calms the camera — for reels where
+        people on screen carry the story instead of the typography.</p>
     </div>
 
     <div class="tab-panel" data-panel="sound">
+      <h3 class="pane-subtitle">Narration</h3>
+      <p class="hint">A narrator is what lets the words leave the screen: with a voice carrying the
+        story, captions drop to ordinary subtitles and the picture gets the frame. Needs your own key
+        — roughly 1–3¢ per scene. Each scene is re-timed to the length of its line.</p>
+      <div class="field-grid">
+        <label class="field"><span>Voice provider</span><select id="voiceProvider"></select></label>
+        <label class="field"><span>Voice</span><select id="voiceName"></select></label>
+      </div>
+      <label class="field block" id="voiceIdField" hidden>
+        <span>Voice id</span>
+        <input id="voiceId" type="text" placeholder="ElevenLabs voice id">
+      </label>
+      <label class="field block">
+        <span id="voiceKeyLabel">API key</span>
+        <input id="voiceKey" type="password" autocomplete="off" placeholder="Paste your key">
+      </label>
+      <label class="field block">
+        <span>Delivery notes</span>
+        <input id="voiceInstructions" type="text" placeholder="e.g. unhurried storyteller, warm, a little grave">
+      </label>
+      <div class="field-grid">
+        <label class="field"><span>Pause after each line <b id="voiceGapValue"></b></span>
+          <input id="voiceGap" type="range" min="0" max="1.5" step="0.05"></label>
+        <label class="field"><span>Duck the score <b id="voiceDuckValue"></b></span>
+          <input id="voiceDuck" type="range" min="0" max="0.9" step="0.05"></label>
+      </div>
+      <div class="field-row">
+        <button id="narrateAllBtn" class="btn primary wide">Narrate every scene</button>
+        <button id="narrateOneBtn" class="btn">This scene</button>
+        <button id="cancelNarrateBtn" class="btn ghost" hidden>Stop</button>
+      </div>
+      <div id="narrateProgress" class="progress" hidden><div id="narrateBar" class="progress-bar"></div></div>
+      <div id="narrateStatus" class="export-result" hidden></div>
+
+      <h3 class="pane-subtitle">Score</h3>
       <label class="check"><input type="checkbox" id="audioEnabled" checked> Generate a score</label>
       <p class="hint">The score is synthesised from the scene moods — no audio files, and it re-writes
         itself when you re-cut the story. It is mixed into the recording.</p>
@@ -299,6 +342,7 @@
 <script src="js/story.js"></script>
 <script src="js/images.js"></script>
 <script src="js/generate.js"></script>
+<script src="js/voice.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/export.js"></script>

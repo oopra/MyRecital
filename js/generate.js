@@ -22,6 +22,19 @@ const MR_PANEL_STORE = 'panels';
 // The house style is one block of prompt text reused on every panel — that, far more than
 // any per-panel wording, is what stops ten images looking like ten different comics.
 const MR_ART_STYLES = {
+  cinematic: {
+    name: 'Cinematic (real people)',
+    prompt: 'Photorealistic cinematic film still, real human beings with natural skin texture and ' +
+      'believable anatomy, shot on a full-frame camera with a 50mm lens, shallow depth of field, ' +
+      'soft directional natural light, muted filmic colour grade, period-accurate costume and setting, ' +
+      'candid unposed expression, documentary realism'
+  },
+  portrait: {
+    name: 'Portrait realism',
+    prompt: 'Photorealistic portrait of real people, natural skin and hair detail, warm window light, ' +
+      'shallow depth of field, subdued colours, calm naturalistic expression, authentic clothing and ' +
+      'jewellery, no stylisation, no illustration'
+  },
   ack: {
     name: 'Amar Chitra Katha',
     prompt: 'Classic Indian mythological comic book art in the Amar Chitra Katha tradition: ' +
@@ -49,8 +62,9 @@ const MR_ART_STYLES = {
 
 // Appended to every prompt. Panels carry no lettering because the app draws the captions
 // itself — a model's attempt at text inside the picture is both unreadable and off-brand.
-const MR_PANEL_RULES = 'Single illustration, no speech bubbles, no captions, no lettering, no text of any kind, ' +
-  'no watermark, no signature, no panel borders, no frame.';
+const MR_PANEL_RULES = 'Single image, no speech bubbles, no captions, no lettering, no text of any kind, ' +
+  'no watermark, no signature, no panel borders, no frame, no collage, no split screen, ' +
+  'anatomically correct hands.';
 
 const MR_DEFAULT_GENERATION = {
   provider: 'gemini',

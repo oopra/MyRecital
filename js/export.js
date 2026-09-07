@@ -81,7 +81,9 @@ function exportVideo(project, opts) {
 
     // Mix in the score. If audio is off or unsupported we simply record a silent video.
     let audioStarted = false;
-    if (project.audio && project.audio.enabled) {
+    const hasNarration = project.scenes.some((s) => s.narration);
+    const wantsAudio = (project.audio && project.audio.enabled) || hasNarration;
+    if (wantsAudio) {
       const audioStream = mrAudioStream();
       if (audioStream) for (const track of audioStream.getAudioTracks()) stream.addTrack(track);
     }
@@ -111,7 +113,7 @@ function exportVideo(project, opts) {
     });
 
     recorder.start(250);
-    if (project.audio && project.audio.enabled) audioStarted = mrAudioPlay(project, 0);
+    if (wantsAudio) audioStarted = mrAudioPlay(project, 0);
 
     // Drive frames off the wall clock so the video and the audio graph stay locked, even
     // if a heavy frame makes us miss a vsync.
@@ -166,13 +168,14 @@ function importProjectJSON(text) {
     style: Object.assign({}, MR_DEFAULT_STYLE, data.style),
     audio: Object.assign({}, MR_DEFAULT_AUDIO, data.audio),
     generation: Object.assign({}, typeof MR_DEFAULT_GENERATION !== 'undefined' ? MR_DEFAULT_GENERATION : {}, data.generation),
+    narration: Object.assign({}, typeof MR_DEFAULT_NARRATION !== 'undefined' ? MR_DEFAULT_NARRATION : {}, data.narration),
     cast: Array.isArray(data.cast) ? data.cast : [],
     scenes: data.scenes.map((scene) => Object.assign(makeScene(scene.text || '', {
       mood: scene.mood, background: scene.background, motion: scene.motion, transition: scene.transition,
       captionStyle: scene.captionStyle, captionPosition: scene.captionPosition, emphasis: scene.emphasis,
       accent: scene.accent, intensity: scene.intensity, duration: scene.duration, seed: scene.seed, kind: scene.kind,
       picture: scene.picture, pictureFit: scene.pictureFit, pictureFocus: scene.pictureFocus, pictureGrade: scene.pictureGrade,
-      panel: scene.panel
+      panel: scene.panel, narration: scene.narration
     }), { id: scene.id || undefined }))
   };
   for (const scene of project.scenes) if (!scene.id) scene.id = mrSceneId();

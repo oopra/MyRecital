@@ -21,6 +21,8 @@ const MR_SCORES = {
 const mrAudio = {
   ctx: null,
   master: null,
+  music: null,     // the generated score
+  voice: null,     // narration
   streamNode: null,
   nodes: [],       // everything scheduled, so stop() can cut it dead
   playing: false
@@ -37,6 +39,15 @@ function mrAudioEnsure() {
   mrAudio.ctx = new Ctx();
   mrAudio.master = mrAudio.ctx.createGain();
   mrAudio.master.gain.value = 0.5;
+  // The score and the narration are separate buses so the music can drop under a line
+  // of speech and come back up after it — which is the difference between a score and
+  // a thing you have to talk over.
+  mrAudio.music = mrAudio.ctx.createGain();
+  mrAudio.music.gain.value = 1;
+  mrAudio.music.connect(mrAudio.master);
+  mrAudio.voice = mrAudio.ctx.createGain();
+  mrAudio.voice.gain.value = 1;
+  mrAudio.voice.connect(mrAudio.master);
   // Gentle limiter so a dense scene can never clip the recording.
   const comp = mrAudio.ctx.createDynamicsCompressor();
   comp.threshold.value = -12;
@@ -79,7 +90,7 @@ function mrVoice(midi, startAt, duration, gainValue, wave, shape) {
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + Math.max(attack + 0.02, duration - release) + release);
   osc.connect(filter);
   filter.connect(gain);
-  gain.connect(mrAudio.master);
+  gain.connect(mrAudio.music);
   osc.start(startAt);
   osc.stop(startAt + duration + 0.1);
   mrAudio.nodes.push(osc);
@@ -104,7 +115,7 @@ function mrNoise(startAt, duration, gainValue, sweepFrom, sweepTo) {
   gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
   src.connect(filter);
   filter.connect(gain);
-  gain.connect(mrAudio.master);
+  gain.connect(mrAudio.music);
   src.start(startAt);
   mrAudio.nodes.push(src);
 }
@@ -145,14 +156,17 @@ function scoreFor(project) {
 // support or the bed is switched off, so callers can carry on silently.
 function mrAudioPlay(project, fromSeconds) {
   mrAudioStop();
-  if (!project.audio || !project.audio.enabled) return false;
+  // The score can be off while narration is on — the voice is still the audio track.
+  const scoreOn = !!(project.audio && project.audio.enabled);
+  const hasNarration = project.scenes.some((s) => s.narration);
+  if (!scoreOn && !hasNarration) return false;
   const ctx = mrAudioEnsure();
   if (!ctx) return false;
   if (ctx.state === 'suspended') ctx.resume();
   mrAudioVolume(project.audio.volume != null ? project.audio.volume : 0.5);
   const origin = ctx.currentTime + 0.08;
   const from = fromSeconds || 0;
-  for (const e of scoreFor(project)) {
+  for (const e of (scoreOn ? scoreFor(project) : [])) {
     if (e.at + e.dur < from) continue;
     const at = origin + Math.max(0, e.at - from);
     const dur = e.at < from ? e.dur - (from - e.at) : e.dur;
@@ -160,11 +174,55 @@ function mrAudioPlay(project, fromSeconds) {
     if (e.type === 'whoosh') mrNoise(at, dur, e.gain, 200, 3000);
     else mrVoice(e.midi, at, dur, e.gain, e.wave, e.type);
   }
+  mrScheduleNarration(project, origin, from);
   mrAudio.playing = true;
   return true;
 }
 
+// Play each scene's narration at its place on the timeline, and duck the score around it.
+// Called from mrAudioPlay so narration is part of the same graph the recorder captures —
+// the reason this app does not use browser speech synthesis, which cannot be recorded.
+function mrScheduleNarration(project, origin, from) {
+  if (typeof narrationBuffer !== 'function') return;
+  const settings = Object.assign({ duckMusic: 0.3 }, project.narration);
+  if (settings.enabled === false) return;
+  const ctx = mrAudio.ctx;
+  const times = sceneTimeline(project);
+  const duck = Math.max(0, Math.min(1, 1 - (settings.duckMusic != null ? settings.duckMusic : 0.3)));
+  let spoke = false;
+
+  project.scenes.forEach((scene, i) => {
+    const buffer = narrationBuffer(scene.id);
+    if (!buffer) return;
+    const start = times[i].start;
+    const end = start + buffer.duration;
+    if (end < from) return;
+    const offset = Math.max(0, from - start);
+    const at = origin + Math.max(0, start - from);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(mrAudio.voice);
+    source.start(at, offset);
+    mrAudio.nodes.push(source);
+    spoke = true;
+
+    // Fade the score down just before the line and back up just after, rather than
+    // stepping it, which is audible as a click.
+    const gain = mrAudio.music.gain;
+    gain.setTargetAtTime(duck, Math.max(ctx.currentTime, at - 0.12), 0.06);
+    gain.setTargetAtTime(1, at + (buffer.duration - offset) + 0.05, 0.25);
+  });
+  if (!spoke) mrAudio.music.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
+}
+
 function mrAudioStop() {
+  // Cancel any ducking still scheduled, or the next play would start under a fade.
+  if (mrAudio.music && mrAudio.ctx) {
+    try {
+      mrAudio.music.gain.cancelScheduledValues(mrAudio.ctx.currentTime);
+      mrAudio.music.gain.setValueAtTime(1, mrAudio.ctx.currentTime);
+    } catch { /* context already closed */ }
+  }
   for (const node of mrAudio.nodes) {
     try { node.stop(0); } catch { /* already stopped — fine */ }
     try { node.disconnect(); } catch { /* ditto */ }

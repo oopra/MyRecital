@@ -12,6 +12,7 @@ css/styles.css    — all styling
 js/story.js       — text → storyboard: sentence splitting, beats, mood, pacing
 js/images.js      — found artwork: Wikimedia Commons search, licence filter, image cache
 js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
+js/voice.js       — narration: TTS adapters, audio storage, and the timing it dictates
 js/render.js      — the picture: artwork or 13 procedural backgrounds, camera, captions
 js/audio.js       — the score: synthesised from the scene moods, no audio files
 js/export.js      — recording (MediaRecorder), stills, captions, project files
@@ -20,6 +21,7 @@ js/app.js         — boot
 tests/            — the test suite, run against a real browser
 scripts/serve.mjs — `npm run serve`, a static server for local development
 functions/api/image.js — optional: image-model proxy for providers that block browsers
+functions/api/voice.js — optional: text-to-speech proxy, same pattern
 ```
 
 The app is **plain JavaScript with no build step** — `index.html` loads the `js/*.js`
@@ -99,6 +101,41 @@ scene · `s` split · `delete` remove scene · `ctrl/cmd+Z` undo.
 - **Upload kit** — a title, a description built from the story, and tags pulled from its
   own most-used words, each with a copy button.
 
+## Two presentations: words-first or picture-first
+
+The app began words-first — big kinetic captions performing the story, because with no
+voice the text has to be readable at arm's length and there is nothing else to look at.
+That is a fine format, and it is not the only one.
+
+**Picture-first** (a button in the Look tab, and what narrating automatically switches you
+to) drops the captions to ordinary subtitles along the bottom, turns off the word-by-word
+reveal and the emphasis colouring, and calms the camera. The picture holds the frame and
+the words get out of the way. Choose it whenever there are people on screen carrying the
+scene; the words-first look is for reels that *are* typography.
+
+## Narration
+
+Open the **Sound** tab, pick a voice, press **Narrate every scene**. Each line is spoken by
+a real TTS model and — this is the part that matters — **the scene is re-timed to the length
+of what was said**, plus a breath you control. A cut that lands mid-word is worse than no
+narration at all, so the voice sets the rhythm rather than fighting a duration you guessed
+earlier.
+
+The score keeps playing underneath and ducks around each line, on a separate bus so it
+fades rather than steps. Narration is mixed into the recording through the same audio
+graph the score uses, which is precisely why this does not use the browser's built-in
+speech synthesis: `speechSynthesis` cannot be captured by `MediaRecorder`, so a voiceover
+made that way plays for you and is silently missing from the exported file.
+
+| Provider | Backend needed | Notes |
+| --- | --- | --- |
+| OpenAI | `functions/api/voice.js` | Named voices, plus a delivery-notes field the current TTS models honour |
+| ElevenLabs | `functions/api/voice.js` | Addressed by voice id, so you paste the id of a voice you have |
+
+Roughly 1–3¢ per scene. Audio blobs live in IndexedDB beside the panels; the project file
+keeps the length and the id, which is what lets it stay small while the reel stays timed
+to the voice.
+
 ## Drawing the panels
 
 Open the **Art** tab, describe your cast, press **Draw every panel**. Each beat becomes a
@@ -107,8 +144,9 @@ as you wrote them, the beat itself, and a rule that the panel must contain no le
 (the app draws the captions, and a model's attempt at text inside the picture is both
 unreadable and off-brand).
 
-**Style presets:** Amar Chitra Katha (default), Tinkle cartoon, ink and wash, block print —
-plus a free-text notes field that is appended to every prompt.
+**Style presets:** cinematic photorealism and portrait realism for reels with real-looking
+people; Amar Chitra Katha, Tinkle cartoon, ink and wash and block print for drawn ones —
+plus a free-text notes field appended to every prompt.
 
 **The cast is the point.** A model has no memory between calls, so unless every prompt
 describes Arjuna identically you get a different Arjuna in every panel. **Find names in
@@ -189,11 +227,18 @@ music re-writes itself. It is mixed into the recording, not just played locally.
   a spoken voiceover would play locally and be missing from the file. Rather than ship
   that trap, MyRecital does captions and score only — add narration in your editor if you
   want it, using the exported `.srt` as the script.
-- **The generation adapters have never run against a live API.** They were written from
+- **Likeness.** Photoreal presets make convincing pictures of people who do not exist.
+  Don't use them to depict a real, identifiable person saying or doing something they
+  didn't — that is the one use of this app that is nobody's idea of a story.
+- **The generation and narration adapters have never run against a live API.** They were written from
   each provider's current documentation, and the request shapes are asserted in tests, but
   no key exists in the environment they were built in. Every adapter therefore surfaces the
   provider's own error text verbatim, so a wrong field name is a one-run fix rather than a
   guessing game — but expect that first run to be where a shape problem shows up.
+- **Still pictures, not moving footage.** A panel gets a Ken Burns move over it; nobody in
+  it walks. Real motion means a video model (Veo, Kling, Runway and friends), which is a
+  different kind of call — asynchronous jobs, minutes per clip, dollars rather than cents —
+  and is not wired up.
 - **Character drift is real.** A textual cast description gets you the same costume and
   broad look, not the same face. Reference-image conditioning (supported by Gemini and
   OpenAI, not by the Replicate path) would tighten this and is not wired up yet.

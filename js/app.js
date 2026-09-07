@@ -50,6 +50,14 @@ function bootMyRecital() {
   restorePanels(ed.project).then((restored) => {
     if (restored) { drawPreview(); renderTimeline(); }
   }).catch(() => { /* no IndexedDB (private mode): panels are simply not restored */ });
+  // Narration blobs survive too, but the decoded buffers do not — and decoding needs an
+  // AudioContext, which browsers only allow after a gesture. So this is deferred to the
+  // first click anywhere, which is also the first moment audio could be heard.
+  const warmNarration = () => {
+    document.removeEventListener('pointerdown', warmNarration);
+    restoreNarration(ed.project).catch(() => { /* nothing stored, or no audio support */ });
+  };
+  document.addEventListener('pointerdown', warmNarration, { once: true });
   // The first render can land before web fonts settle; repaint once they have.
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawPreview());
 }

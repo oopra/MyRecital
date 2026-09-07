@@ -325,7 +325,10 @@ function makeScene(text, opts) {
     pictureGrade: o.pictureGrade != null ? o.pictureGrade : 0.28,
     // A drawn panel: { id, prompt, provider, model } — the bytes live in IndexedDB under
     // that id, because ten 1K images do not fit in localStorage.
-    panel: o.panel || null
+    panel: o.panel || null,
+    // Narration: { id, seconds, text } — the audio lives in IndexedDB too, and its length
+    // is what sets this scene's duration.
+    narration: o.narration || null
   };
 }
 
@@ -400,6 +403,7 @@ function buildStoryboard(text, opts) {
     audio: Object.assign({}, MR_DEFAULT_AUDIO, o.audio),
     // Panel drawing settings and the cast description shared by every panel prompt.
     generation: Object.assign({}, typeof MR_DEFAULT_GENERATION !== 'undefined' ? MR_DEFAULT_GENERATION : {}, o.generation),
+    narration: Object.assign({}, typeof MR_DEFAULT_NARRATION !== 'undefined' ? MR_DEFAULT_NARRATION : {}, o.narration),
     cast: o.cast || [],
     scenes
   };

@@ -65,6 +65,7 @@ function afterChange() {
   syncStyleControls();
   syncPicturePanel();
   syncPanelControls();
+  syncNarrationControls();
   syncPublishKit();
   drawPreview();
   updateTransport();
@@ -984,6 +985,167 @@ function wirePanels() {
   $('cancelDrawBtn').addEventListener('click', () => { if (mrDrawing) mrDrawing.abort(); });
 }
 
+// ---------------------------------------------------------------- narration
+
+let mrNarrating = null;
+
+function narrationSettings() {
+  return Object.assign({}, MR_DEFAULT_NARRATION, ed.project.narration);
+}
+
+function narrateStatus(text, isError) {
+  const box = $('narrateStatus');
+  box.hidden = !text;
+  box.textContent = text || '';
+  box.style.color = isError ? 'var(--danger)' : '';
+}
+
+function syncNarrationControls() {
+  const settings = narrationSettings();
+  const provider = MR_VOICE_PROVIDERS[settings.provider] || MR_VOICE_PROVIDERS.openai;
+  ed.suppress = true;
+  $('voiceProvider').value = settings.provider;
+  // OpenAI names its voices; ElevenLabs addresses them by id, so the field changes shape.
+  const named = provider.voices.length > 0;
+  $('voiceName').parentElement.hidden = !named;
+  $('voiceIdField').hidden = named;
+  if (named) {
+    fillSelect($('voiceName'), provider.voices);
+    $('voiceName').value = settings.voice || provider.defaultVoice;
+  } else {
+    $('voiceId').value = settings.voice || provider.defaultVoice;
+  }
+  $('voiceKey').value = storedKey('voice-' + settings.provider);
+  $('voiceInstructions').value = settings.instructions || '';
+  $('voiceGap').value = String(settings.gap);
+  $('voiceGapValue').textContent = Number(settings.gap).toFixed(2) + 's';
+  $('voiceDuck').value = String(settings.duckMusic);
+  $('voiceDuckValue').textContent = Math.round(settings.duckMusic * 100) + '%';
+  ed.suppress = false;
+  $('voiceKeyLabel').textContent = `${provider.name} API key`;
+  const spoken = narrationSeconds(ed.project);
+  if (spoken) narrateStatus(`${spoken.toFixed(1)}s of narration across ${ed.project.scenes.filter((s) => s.narration).length} scenes.`);
+}
+
+// Narrate scenes one at a time, re-timing each to its line. Serial for the same reason
+// panels are: TTS endpoints rate-limit, and a burst fails half way through.
+async function narrateScenes(scenes) {
+  if (mrNarrating) return;
+  const settings = narrationSettings();
+  const provider = MR_VOICE_PROVIDERS[settings.provider] || MR_VOICE_PROVIDERS.openai;
+  const apiKey = $('voiceKey').value.trim();
+  mrNarrating = new AbortController();
+  $('cancelNarrateBtn').hidden = false;
+  $('narrateProgress').hidden = false;
+  const bar = $('narrateBar');
+  const before = cloneProject(ed.project);
+  let done = 0, spoken = 0;
+
+  for (const scene of scenes) {
+    if (mrNarrating.signal.aborted) break;
+    narrateStatus(`Narrating ${done + 1} of ${scenes.length}…`);
+    try {
+      const live = ed.project.scenes.find((s) => s.id === scene.id);
+      if (live && live.text.trim()) {
+        await narrateScene(live, ed.project, { apiKey, signal: mrNarrating.signal });
+        spoken++;
+        updateTransport();
+      }
+    } catch (err) {
+      if (mrNarrating.signal.aborted) break;
+      narrateStatus(`Stopped at scene ${done + 1}: ${err.message}`, true);
+      break;
+    }
+    done++;
+    bar.style.width = ((done / scenes.length) * 100).toFixed(1) + '%';
+  }
+
+  if (spoken) {
+    ed.history.push({ label: 'narrate', project: before });
+    if (ed.history.length > MR_HISTORY_LIMIT) ed.history.shift();
+    ed.future.length = 0;
+    // A narrated reel is a picture-first reel: nobody needs the line twice, once spoken
+    // and once dancing. Anything still on a kinetic style drops to subtitles.
+    commit('narration', (p) => {
+      p.narration = Object.assign({}, MR_DEFAULT_NARRATION, p.narration, { enabled: true });
+      for (const scene of p.scenes) {
+        if (scene.narration && scene.captionStyle !== 'title' && scene.captionStyle !== 'none') {
+          scene.captionStyle = 'subtitle';
+        }
+      }
+    });
+    if (!$('narrateStatus').textContent.startsWith('Stopped')) {
+      narrateStatus(`Narrated ${spoken} scene${spoken === 1 ? '' : 's'} · ${narrationSeconds(ed.project).toFixed(1)}s of speech. Captions dropped to subtitles.`);
+    }
+  }
+  mrNarrating = null;
+  $('cancelNarrateBtn').hidden = true;
+  $('narrateProgress').hidden = true;
+  bar.style.width = '0%';
+  void provider;
+}
+
+// Flip the whole reel between the two presentations. This is the setting that decides
+// whether you are making a typography video or a video with people in it.
+function setPresentation(mode) {
+  commit(mode === 'people' ? 'picture-first' : 'words-first', (p) => {
+    for (const scene of p.scenes) {
+      if (scene.captionStyle === 'title' || scene.captionStyle === 'none') continue;
+      scene.captionStyle = mode === 'people' ? 'subtitle' : 'kinetic';
+      if (mode === 'people') {
+        scene.intensity = Math.min(scene.intensity, 0.6);   // let the picture hold still
+        scene.captionPosition = 'bottom';
+      }
+    }
+    p.style.motionScale = mode === 'people' ? 0.6 : 1;
+  });
+}
+
+function wireNarration() {
+  const providerKeys = Object.keys(MR_VOICE_PROVIDERS);
+  fillSelect($('voiceProvider'), providerKeys, providerKeys.map((k) => MR_VOICE_PROVIDERS[k].name));
+
+  const setNarration = (label, changes) => commit(label, (p) => {
+    p.narration = Object.assign({}, MR_DEFAULT_NARRATION, p.narration, changes);
+  });
+
+  $('voiceProvider').addEventListener('change', () => {
+    if (ed.suppress) return;
+    setNarration('set voice provider', { provider: $('voiceProvider').value, voice: '' });
+  });
+  $('voiceName').addEventListener('change', () => {
+    if (ed.suppress) return;
+    setNarration('set voice', { voice: $('voiceName').value });
+  });
+  $('voiceId').addEventListener('change', () => {
+    if (ed.suppress) return;
+    setNarration('set voice', { voice: $('voiceId').value.trim() });
+  });
+  $('voiceInstructions').addEventListener('change', () => {
+    if (ed.suppress) return;
+    setNarration('set delivery', { instructions: $('voiceInstructions').value });
+  });
+  $('voiceKey').addEventListener('change', () => {
+    if (ed.suppress) return;
+    storeKey('voice-' + narrationSettings().provider, $('voiceKey').value.trim());
+  });
+  bindRange('voiceGap', (p, v) => {
+    p.narration = Object.assign({}, MR_DEFAULT_NARRATION, p.narration, { gap: v });
+  }, (v) => { $('voiceGapValue').textContent = v.toFixed(2) + 's'; });
+  bindRange('voiceDuck', (p, v) => {
+    p.narration = Object.assign({}, MR_DEFAULT_NARRATION, p.narration, { duckMusic: v });
+  }, (v) => { $('voiceDuckValue').textContent = Math.round(v * 100) + '%'; });
+
+  $('narrateAllBtn').addEventListener('click', () => narrateScenes(ed.project.scenes.slice()));
+  $('narrateOneBtn').addEventListener('click', () => {
+    const scene = selectedScene();
+    if (scene) narrateScenes([scene]);
+  });
+  $('cancelNarrateBtn').addEventListener('click', () => { if (mrNarrating) mrNarrating.abort(); });
+  $('peopleModeBtn').addEventListener('click', () => setPresentation('people'));
+  $('wordsModeBtn').addEventListener('click', () => setPresentation('words'));
+}
+
 // ---------------------------------------------------------------- building
 
 function buildFromText() {
@@ -1139,6 +1301,7 @@ function wireEditor() {
   buildSelects();
   wirePictures();
   wirePanels();
+  wireNarration();
 
   $('buildBtn').addEventListener('click', buildFromText);
   $('sampleBtn').addEventListener('click', () => {

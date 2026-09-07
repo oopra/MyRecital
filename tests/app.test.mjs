@@ -904,6 +904,152 @@ test('generated panels are not credited as somebody else\'s artwork', async () =
   assert.equal(r.line, '', 'a drawn panel produces no credit line at all');
 });
 
+// --------------------------------------------------------------- narration
+//
+// No TTS key here either, so the provider is stubbed with a real, decodable WAV that the
+// browser measures for itself — which is the part that matters, because the narration's
+// measured length is what re-times the reel.
+
+// A 1-second 8kHz mono WAV of silence, built in the page so the duration is genuinely read
+// back by decodeAudioData rather than asserted from a constant.
+const WAV_MAKER = `
+  const rate = 8000, seconds = 1;
+  const frames = rate * seconds;
+  const buffer = new ArrayBuffer(44 + frames * 2);
+  const view = new DataView(buffer);
+  const ascii = (offset, text) => { for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i)); };
+  ascii(0, 'RIFF'); view.setUint32(4, 36 + frames * 2, true); ascii(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  ascii(36, 'data'); view.setUint32(40, frames * 2, true);
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+`;
+
+test('narrating a scene re-times it to the length of the line', async () => {
+  const r = await ev(async (wavMaker) => {
+    const wav = new Function(wavMaker)();
+    window.__voiceCalls = [];
+    window.fetch = (url, init) => {
+      window.__voiceCalls.push({ url: String(url), body: JSON.parse(init.body) });
+      return Promise.resolve({
+        ok: true, status: 200,
+        text: () => Promise.resolve(JSON.stringify({ b64: wav, mime: 'audio/wav' })),
+        json: () => Promise.resolve({ b64: wav, mime: 'audio/wav' })
+      });
+    };
+    const scene = ed.project.scenes[1];
+    scene.duration = 6.5;                        // deliberately wrong for a 1s line
+    ed.project.narration = Object.assign({}, MR_DEFAULT_NARRATION, { provider: 'openai', gap: 0.4 });
+    await narrateScene(scene, ed.project, { apiKey: 'k' });
+    return {
+      call: window.__voiceCalls[0],
+      duration: scene.duration,
+      seconds: scene.narration.seconds,
+      buffered: !!narrationBuffer(scene.id),
+      total: narrationSeconds(ed.project)
+    };
+  }, WAV_MAKER);
+  assert.equal(r.call.url, '/api/voice', 'TTS goes through our own function, never the provider directly');
+  assert.equal(r.call.body.provider, 'openai');
+  assert.equal(r.call.body.apiKey, 'k');
+  assert.ok(Math.abs(r.seconds - 1) < 0.05, `measured ${r.seconds}s for a 1s clip`);
+  // 1s of speech + a 0.4s breath, replacing the 6.5s guess.
+  assert.ok(Math.abs(r.duration - 1.4) < 0.11, `scene re-timed to ${r.duration}s`);
+  assert.equal(r.buffered, true, 'the decoded audio is ready to play');
+  assert.ok(r.total >= 1);
+});
+
+test('narration is mixed into the recorded audio, and it ducks the score', async () => {
+  const r = await ev(async (wavMaker) => {
+    const wav = new Function(wavMaker)();
+    window.fetch = () => Promise.resolve({
+      ok: true, status: 200,
+      text: () => Promise.resolve(JSON.stringify({ b64: wav, mime: 'audio/wav' })),
+      json: () => Promise.resolve({ b64: wav, mime: 'audio/wav' })
+    });
+    await narrateScene(ed.project.scenes[0], ed.project, { apiKey: 'k' });
+    ed.project.narration.enabled = true;
+    const started = mrAudioPlay(ed.project, 0);
+    const musicGain = mrAudio.music.gain.value;
+    const stream = mrAudioStream();
+    const tracks = stream ? stream.getAudioTracks().length : 0;
+    mrAudioStop();
+    return { started, tracks, musicRestored: mrAudio.music.gain.value };
+  }, WAV_MAKER);
+  assert.equal(r.started, true);
+  assert.ok(r.tracks > 0, 'there is an audio track for the recorder to capture');
+  assert.equal(r.musicRestored, 1, 'stopping cancels the duck, so the next play is not quiet');
+  void r.musicRestored;
+});
+
+test('the score can be off while narration still plays', async () => {
+  const started = await ev(() => {
+    ed.project.audio.enabled = false;
+    ed.project.scenes[0].narration = { id: 'x', seconds: 1, text: 'x' };
+    return mrAudioPlay(ed.project, 0);
+  });
+  assert.equal(started, true, 'a silent score must not silence the narrator');
+});
+
+test('picture-first mode drops the words to subtitles and calms the camera', async () => {
+  const r = await ev(() => {
+    setPresentation('people');
+    const after = ed.project.scenes.filter((s) => s.captionStyle !== 'title');
+    const people = {
+      styles: [...new Set(after.map((s) => s.captionStyle))],
+      motion: ed.project.style.motionScale,
+      intensity: Math.max(...after.map((s) => s.intensity))
+    };
+    setPresentation('words');
+    const words = [...new Set(ed.project.scenes.filter((s) => s.captionStyle !== 'title').map((s) => s.captionStyle))];
+    return { people, words };
+  });
+  assert.deepEqual(r.people.styles, ['subtitle']);
+  assert.ok(r.people.motion <= 0.6, 'the camera calms down when the picture carries the scene');
+  assert.ok(r.people.intensity <= 0.6);
+  assert.deepEqual(r.words, ['kinetic'], 'and it flips back');
+});
+
+test('a subtitle sits low, stays small, and does not colour words', async () => {
+  const r = await ev(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080; canvas.height = 1920;
+    const ctx = canvas.getContext('2d');
+    const subtitle = captionBox(1080, 1920, 'bottom', 'subtitle');
+    const kinetic = captionBox(1080, 1920, 'center', 'kinetic');
+    const font = MR_FONTS.display;
+    const text = 'Seeing all his kinsmen arrayed, he was filled with pity.';
+    const subSize = fitCaption(ctx, text, font, subtitle, { maxSize: 1920 * 0.032, minSize: 1920 * 0.02, maxLines: 3 }).size;
+    const kinSize = fitCaption(ctx, text, font, kinetic, { maxSize: 1920 * 0.062, minSize: 1920 * 0.028, maxLines: 5 }).size;
+    return { subY: subtitle.y / 1920, kinY: kinetic.y / 1920, subSize, kinSize };
+  });
+  assert.ok(r.subY > 0.7, 'subtitles sit in the lower quarter, clear of faces');
+  assert.ok(r.kinY < 0.4, 'kinetic captions own the middle');
+  assert.ok(r.subSize < r.kinSize / 1.5, `subtitle ${r.subSize}px vs kinetic ${r.kinSize}px`);
+});
+
+test('a narrated scene survives the save file and the reel stays timed to the voice', async () => {
+  const r = await ev(() => {
+    ed.project.scenes[0].narration = { id: 'voice-1', seconds: 3.2, text: 'x', mime: 'audio/mpeg' };
+    ed.project.scenes[0].duration = 3.6;
+    ed.project.narration = Object.assign({}, MR_DEFAULT_NARRATION, { enabled: true, voice: 'onyx' });
+    const back = importProjectJSON(exportProjectJSON(ed.project));
+    return {
+      narration: back.scenes[0].narration,
+      duration: back.scenes[0].duration,
+      settings: { enabled: back.narration.enabled, voice: back.narration.voice }
+    };
+  });
+  assert.equal(r.narration.id, 'voice-1');
+  assert.equal(r.narration.seconds, 3.2);
+  assert.equal(r.duration, 3.6);
+  assert.deepEqual(r.settings, { enabled: true, voice: 'onyx' });
+});
+
 test('the reel reloads from local storage on the next visit', async () => {
   await ev(() => {
     document.getElementById('storyText').value = 'Persisted Reel\n\nOne line of story that should come back.';
