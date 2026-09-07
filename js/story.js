@@ -316,7 +316,13 @@ function makeScene(text, opts) {
     intensity: o.intensity != null ? o.intensity : look.intensity,
     duration: o.duration != null ? o.duration : sceneDurationFor(text),
     seed: o.seed != null ? o.seed : mrHash(text) % 100000,
-    kind: o.kind || 'beat'          // 'title' | 'beat' | 'outro'
+    kind: o.kind || 'beat',         // 'title' | 'beat' | 'outro'
+    // Illustration. null means "draw the procedural background instead", which is also
+    // what a scene falls back to while its picture is still downloading.
+    picture: o.picture || null,
+    pictureFit: o.pictureFit || 'cover',
+    pictureFocus: o.pictureFocus || { x: 0.5, y: 0.42 },   // faces sit above centre
+    pictureGrade: o.pictureGrade != null ? o.pictureGrade : 0.28
   };
 }
 
@@ -331,7 +337,8 @@ const MR_DEFAULT_STYLE = {
   sceneNumbers: false,
   watermark: '',
   motionScale: 1,
-  seed: 1
+  seed: 1,
+  imageHint: ''        // appended to every picture search, e.g. "Mahabharata painting"
 };
 
 const MR_DEFAULT_AUDIO = { enabled: true, mood: 'auto', volume: 0.5, accents: true };
@@ -435,16 +442,19 @@ function publishKit(project) {
   // The hook is the first line of the description; the rest of the story follows it, with
   // the hook itself trimmed off so the opening sentence isn't printed twice.
   const rest = hook && body.startsWith(hook.text) ? body.slice(hook.text.length).trim() : body;
+  const credits = typeof projectCredits === 'function' ? projectCredits(project) : [];
   const description = [
     hook ? hook.text : '',
     '',
     rest.length > 300 ? rest.slice(0, 297) + '…' : rest,
     '',
-    tags.map((t) => '#' + t.replace(/[^a-z0-9]/g, '')).slice(0, 5).join(' ')
+    tags.map((t) => '#' + t.replace(/[^a-z0-9]/g, '')).slice(0, 5).join(' '),
+    credits.length ? '\nArtwork:\n' + credits.map((c) => '· ' + c).join('\n') : ''
   ].join('\n').trim();
   return {
     title,
     description,
+    credits,
     tags,
     hashtags: tags.slice(0, 5).map((t) => '#' + t.replace(/[^a-z0-9]/g, '')),
     duration: total,

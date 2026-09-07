@@ -94,6 +94,7 @@
 
     <div class="tabs" role="tablist">
       <button class="tab is-active" role="tab" data-tab="scene" aria-selected="true">Scene</button>
+      <button class="tab" role="tab" data-tab="picture" aria-selected="false">Picture</button>
       <button class="tab" role="tab" data-tab="look" aria-selected="false">Look</button>
       <button class="tab" role="tab" data-tab="sound" aria-selected="false">Sound</button>
       <button class="tab" role="tab" data-tab="export" aria-selected="false">Export</button>
@@ -136,6 +137,58 @@
           <button id="deleteBtn" class="btn ghost danger">Delete</button>
         </div>
       </div>
+    </div>
+
+
+    <div class="tab-panel" data-panel="picture">
+      <p class="hint">Public-domain and openly-licensed artwork from Wikimedia Commons. No account,
+        no key, no cost — and the credits go into your description automatically.</p>
+      <label class="field block">
+        <span>Style hint for every search <i class="muted">(saved with the reel)</i></span>
+        <input id="imageHint" type="text" placeholder="e.g. Mahabharata painting, Raja Ravi Varma">
+      </label>
+      <div class="field-row">
+        <button id="illustrateAllBtn" class="btn primary wide">Illustrate every scene</button>
+        <button id="clearPicturesBtn" class="btn ghost">Clear all</button>
+      </div>
+      <div id="illustrateProgress" class="progress" hidden><div id="illustrateBar" class="progress-bar"></div></div>
+
+      <h3 class="pane-subtitle">This scene</h3>
+      <div id="noPictureScene" class="empty">Pick a scene on the timeline.</div>
+      <div id="pictureEditor" hidden>
+        <div class="field-row">
+          <input id="imageQuery" type="text" placeholder="Search Wikimedia Commons" aria-label="Search Wikimedia Commons">
+          <button id="imageSearchBtn" class="btn">Search</button>
+        </div>
+        <div class="field-row">
+          <label class="check"><input type="checkbox" id="publicDomainOnly" checked> Public domain only</label>
+          <span id="searchStatus" class="muted" role="status" aria-live="polite"></span>
+        </div>
+        <div id="imageResults" class="results" aria-label="Search results"></div>
+
+        <div id="currentPicture" class="current-picture" hidden></div>
+        <div id="pictureControls" hidden>
+          <div class="field-grid">
+            <label class="field"><span>Framing</span><select id="pictureFit">
+              <option value="cover">Fill the frame</option>
+              <option value="contain">Fit whole picture</option>
+            </select></label>
+            <label class="field"><span>Grade <b id="gradeValue"></b></span>
+              <input id="pictureGrade" type="range" min="0" max="1" step="0.05"></label>
+            <label class="field"><span>Focus ← → <b id="focusXValue"></b></span>
+              <input id="focusX" type="range" min="0" max="1" step="0.02"></label>
+            <label class="field"><span>Focus ↑ ↓ <b id="focusYValue"></b></span>
+              <input id="focusY" type="range" min="0" max="1" step="0.02"></label>
+          </div>
+          <div class="field-row">
+            <button id="removePictureBtn" class="btn ghost danger">Remove picture</button>
+            <a id="pictureSource" class="btn ghost" target="_blank" rel="noopener noreferrer">View on Commons</a>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="pane-subtitle">Credits</h3>
+      <div id="creditsBox" class="publish-kit"></div>
     </div>
 
     <div class="tab-panel" data-panel="look">
@@ -209,6 +262,7 @@
 <input id="fileInput" type="file" accept="application/json,.json" hidden>
 
 <script src="js/story.js"></script>
+<script src="js/images.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/export.js"></script>

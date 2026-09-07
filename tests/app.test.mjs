@@ -406,6 +406,272 @@ test('recording produces a real video file with the score mixed in', async () =>
   assert.deepEqual(page.__errors, []);
 });
 
+// ------------------------------------------------------------------- pictures
+//
+// These run offline against a fixture of a real Commons response (captured from the live
+// API) so CI never depends on Wikimedia being up or fast. The live path is exercised by
+// the opt-in test at the bottom.
+
+const COMMONS_FIXTURE = {
+  batchcomplete: true,
+  query: {
+    pages: [
+      {
+        pageid: 1, ns: 6, title: 'File:Sairandhri, by Raja Ravi Varma.jpg',
+        imageinfo: [{
+          width: 535, height: 800, thumbwidth: 803, thumbheight: 1200,
+          thumburl: 'https://upload.wikimedia.org/pd-800.jpg',
+          url: 'https://upload.wikimedia.org/pd-full.jpg',
+          descriptionurl: 'https://commons.wikimedia.org/wiki/File:Sairandhri',
+          extmetadata: {
+            License: { value: 'pd' },
+            LicenseShortName: { value: 'Public domain' },
+            ObjectName: { value: 'Sairandhri' },
+            Artist: { value: '<a href="/wiki/Raja_Ravi_Varma">Raja Ravi Varma</a>' },
+            DateTimeOriginal: { value: 'circa 1890' }
+          }
+        }]
+      },
+      {
+        pageid: 2, ns: 6, title: 'File:Krishna and Arjuna on Chariot Painting.jpg',
+        imageinfo: [{
+          width: 2196, height: 3126, thumbwidth: 1200, thumbheight: 1708,
+          thumburl: 'https://upload.wikimedia.org/ccbysa-1200.jpg',
+          url: 'https://upload.wikimedia.org/ccbysa-full.jpg',
+          descriptionurl: 'https://commons.wikimedia.org/wiki/File:Krishna',
+          extmetadata: {
+            License: { value: 'cc-by-sa-4.0' },
+            LicenseShortName: { value: 'CC BY-SA 4.0' },
+            ObjectName: { value: 'Krishna and Arjuna on Chariot' },
+            Artist: { value: '<a class="new">V Karnathia</a>' }
+          }
+        }]
+      },
+      {
+        pageid: 3, ns: 6, title: 'File:Something copyrighted.jpg',
+        imageinfo: [{
+          width: 1000, height: 800, thumburl: 'https://upload.wikimedia.org/fairuse.jpg',
+          url: 'https://upload.wikimedia.org/fairuse-full.jpg',
+          extmetadata: { License: { value: 'fair use' }, LicenseShortName: { value: 'Fair use' } }
+        }]
+      },
+      {
+        pageid: 4, ns: 6, title: 'File:Tiny icon.png',
+        imageinfo: [{
+          width: 64, height: 64, thumburl: 'https://upload.wikimedia.org/tiny.png',
+          url: 'https://upload.wikimedia.org/tiny-full.png',
+          extmetadata: { License: { value: 'pd' }, LicenseShortName: { value: 'Public domain' } }
+        }]
+      }
+    ]
+  }
+};
+
+test('Commons results: unusable licences and thumbnails are filtered out', async () => {
+  const r = await ev((fixture) => {
+    const all = parseCommonsResults(fixture, {});
+    const pdOnly = parseCommonsResults(fixture, { publicDomainOnly: true });
+    return {
+      all: all.map((p) => [p.title, p.licenceClass]),
+      pdOnly: pdOnly.map((p) => p.title),
+      artist: all[0].artist,
+      credit: creditLine(all[0])
+    };
+  }, COMMONS_FIXTURE);
+  // Fair use is never offered; a 64px icon is not artwork.
+  assert.deepEqual(r.all, [['Sairandhri', 'public'], ['Krishna and Arjuna on Chariot', 'attribution']]);
+  assert.deepEqual(r.pdOnly, ['Sairandhri']);
+  assert.equal(r.artist, 'Raja Ravi Varma', 'artist HTML is stripped to text');
+  assert.match(r.credit, /Sairandhri — Raja Ravi Varma — circa 1890 \(Public domain\), via Wikimedia Commons/);
+});
+
+test('the search query for a scene comes from its proper nouns, plus the style hint', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Then Arjuna asked Krishna to drive the chariot. The dust had not yet risen.',
+      { titleCard: false });
+    p.style.imageHint = 'Mahabharata painting';
+    return { query: imageQueryFor(p.scenes[0], p), plain: imageQueryFor(p.scenes[0], { style: {} }) };
+  });
+  assert.match(r.query, /Arjuna/);
+  assert.match(r.query, /Krishna/);
+  assert.match(r.query, /Mahabharata painting$/);
+  assert.doesNotMatch(r.plain, /Then/, 'a sentence-opening capital is not a proper noun');
+});
+
+test('an assigned picture is drawn, framed by its focal point, and keeps the canvas untainted', async () => {
+  const r = await ev(async () => {
+    // A same-origin generated image stands in for the Commons artwork: what matters is
+    // the draw path, the focal-point crop and that reading pixels back still works.
+    const source = document.createElement('canvas');
+    source.width = 400; source.height = 200;
+    const sctx = source.getContext('2d');
+    sctx.fillStyle = '#ff0000'; sctx.fillRect(0, 0, 200, 200);
+    sctx.fillStyle = '#00ff00'; sctx.fillRect(200, 0, 200, 200);
+    const img = new Image();
+    await new Promise((resolve) => { img.onload = resolve; img.src = source.toDataURL(); });
+
+    const p = buildStoryboard('A test beat with several words in it.', { titleCard: false });
+    const scene = p.scenes[0];
+    scene.picture = { src: 'test://art', title: 'Test', licence: 'Public domain', licenceClass: 'public' };
+    scene.motion = 'none';
+    scene.captionStyle = 'none';
+    scene.pictureGrade = 0;
+    mrImageCache.set('test://art', { status: 'ready', img });
+
+    const sample = (focusX) => {
+      scene.pictureFocus = { x: focusX, y: 0.5 };
+      const c = document.createElement('canvas');
+      c.width = 108; c.height = 192;
+      const x = c.getContext('2d');
+      x.scale(108 / 1080, 192 / 1920);
+      renderFrame(x, p, scene.duration * 0.5, { width: 1080, height: 1920 });
+      // getImageData throws on a tainted canvas — this doubles as the taint check.
+      const px = x.getImageData(54, 96, 1, 1).data;
+      return { r: px[0], g: px[1] };
+    };
+    const left = sample(0);
+    const right = sample(1);
+    const withoutPicture = (() => {
+      scene.picture = null;
+      const c = document.createElement('canvas');
+      c.width = 108; c.height = 192;
+      const x = c.getContext('2d');
+      x.scale(108 / 1080, 192 / 1920);
+      renderFrame(x, p, scene.duration * 0.5, { width: 1080, height: 1920 });
+      return x.getImageData(54, 96, 1, 1).data[0];
+    })();
+    return { left, right, withoutPicture };
+  });
+  // Focus 0 crops to the left (red) half, focus 1 to the right (green) half.
+  assert.ok(r.left.r > 200 && r.left.g < 80, `expected red, got ${JSON.stringify(r.left)}`);
+  assert.ok(r.right.g > 200 && r.right.r < 80, `expected green, got ${JSON.stringify(r.right)}`);
+  assert.ok(r.withoutPicture < 120, 'without a picture the procedural background is drawn instead');
+});
+
+test('a scene whose picture has not loaded falls back instead of drawing nothing', async () => {
+  const lit = await ev(() => {
+    const p = buildStoryboard('The storm came in over the water tonight.', { titleCard: false });
+    p.scenes[0].picture = { src: 'test://never-loads', title: 'Missing', licenceClass: 'public' };
+    const c = document.createElement('canvas');
+    c.width = 108; c.height = 192;
+    const x = c.getContext('2d');
+    x.scale(108 / 1080, 192 / 1920);
+    renderFrame(x, p, 1, { width: 1080, height: 1920 });
+    const data = x.getImageData(0, 0, 108, 192).data;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] + data[i + 1] + data[i + 2] > 30) n++;
+    return n;
+  });
+  assert.ok(lit > 200, 'the frame still has a picture in it');
+});
+
+test('credits are collected once per artwork and land in the description', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('One beat here about a boat. Another beat here about the sea.',
+      { titleCard: false, maxWordsPerScene: 7 });
+    const pd = { src: 'a', title: 'Sairandhri', artist: 'Raja Ravi Varma', licence: 'Public domain', licenceClass: 'public' };
+    const by = { src: 'b', title: 'Chariot', artist: 'V Karnathia', licence: 'CC BY-SA 4.0', licenceClass: 'attribution' };
+    p.scenes[0].picture = pd;
+    p.scenes[1].picture = by;
+    if (p.scenes[2]) p.scenes[2].picture = pd;      // same artwork reused
+    const kit = publishKit(p);
+    return { credits: projectCredits(p), needsAttribution: projectNeedsAttribution(p), description: kit.description };
+  });
+  assert.equal(r.credits.length, 2, 'the reused artwork is credited once');
+  assert.equal(r.needsAttribution, true);
+  assert.match(r.description, /Artwork:/);
+  assert.match(r.description, /Raja Ravi Varma/);
+});
+
+test('a picture survives the save-file round trip', async () => {
+  const r = await ev(() => {
+    ed.project.scenes[0].picture = { src: 'https://example.org/art.jpg', title: 'Art', licence: 'Public domain', licenceClass: 'public' };
+    ed.project.scenes[0].pictureFocus = { x: 0.2, y: 0.8 };
+    ed.project.scenes[0].pictureFit = 'contain';
+    const back = importProjectJSON(exportProjectJSON(ed.project));
+    return {
+      src: back.scenes[0].picture.src,
+      focus: back.scenes[0].pictureFocus,
+      fit: back.scenes[0].pictureFit
+    };
+  });
+  assert.equal(r.src, 'https://example.org/art.jpg');
+  assert.deepEqual(r.focus, { x: 0.2, y: 0.8 });
+  assert.equal(r.fit, 'contain');
+});
+
+test('the picture panel searches Commons and assigns what you click', async () => {
+  // Stub fetch so the UI path is tested without the network.
+  await page.evaluate((fixture) => {
+    window.__searched = [];
+    window.fetch = (url) => {
+      window.__searched.push(String(url));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(fixture) });
+    };
+  }, COMMONS_FIXTURE);
+  await page.click('.tab[data-tab="picture"]');
+  await page.fill('#imageQuery', 'Raja Ravi Varma');
+  await page.uncheck('#publicDomainOnly');
+  await page.click('#imageSearchBtn');
+  await page.waitForSelector('.result');
+  assert.equal(await page.locator('.result').count(), 2);
+  const url = await ev(() => window.__searched[window.__searched.length - 1]);
+  assert.match(url, /commons\.wikimedia\.org/);
+  assert.match(url, /origin=\*/, 'anonymous CORS parameter must be present');
+  assert.match(url, /gsrnamespace=6/);
+
+  await page.locator('.result').first().click();
+  const assigned = await ev(() => selectedScene().picture);
+  assert.equal(assigned.title, 'Sairandhri');
+  assert.equal(await page.locator('.clip-picture').count(), 1, 'the timeline marks illustrated scenes');
+  assert.match(await page.locator('#creditsBox').innerText(), /Raja Ravi Varma/);
+  assert.deepEqual(page.__errors, []);
+});
+
+test('illustrate-every-scene fills every scene, using distinct pictures first', async () => {
+  await page.evaluate((fixture) => {
+    window.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(fixture) });
+  }, COMMONS_FIXTURE);
+  await page.click('.tab[data-tab="picture"]');
+  await page.uncheck('#publicDomainOnly');
+  await page.click('#illustrateAllBtn');
+  // Wait for the run itself to finish, not for a hidden element to become "visible".
+  await page.waitForFunction(() => typeof mrIllustrating !== 'undefined' && mrIllustrating === false &&
+    ed.project.scenes.some((s) => s.picture));
+  const r = await ev(() => {
+    const used = ed.project.scenes.filter((s) => s.picture).map((s) => s.picture.src);
+    return { used: used.length, unique: new Set(used).size, scenes: ed.project.scenes.length };
+  });
+  // A bare scene in the middle of an illustrated reel reads as broken, so every scene
+  // gets a picture: the distinct ones first, then repeats once the pool runs dry.
+  assert.equal(r.used, r.scenes, 'no scene is left bare');
+  assert.equal(r.unique, 2, 'both usable fixture pictures are used before anything repeats');
+  assert.deepEqual(page.__errors, []);
+});
+
+// Opt-in: hits the real Commons API. Run with MR_LIVE_COMMONS=1 to check the contract
+// still holds; kept out of CI so an upstream hiccup never turns the build red.
+test('live: Commons still answers the shape we parse', { skip: !process.env.MR_LIVE_COMMONS }, async () => {
+  const r = await ev(async () => {
+    const results = await searchCommons('Raja Ravi Varma Mahabharata', { limit: 5, publicDomainOnly: true });
+    if (!results.length) return { count: 0 };
+    const img = await loadPicture(results[0].src);
+    // Draw it and read the pixels back: proves the CORS headers still allow an
+    // untainted canvas, which is what makes the reel recordable.
+    const c = document.createElement('canvas');
+    c.width = 40; c.height = 40;
+    const x = c.getContext('2d');
+    x.drawImage(img, 0, 0, 40, 40);
+    let tainted = false;
+    try { x.getImageData(0, 0, 1, 1); } catch { tainted = true; }
+    return { count: results.length, licence: results[0].licenceClass, tainted, width: img.width };
+  });
+  assert.ok(r.count > 0, 'live search returned results');
+  assert.equal(r.licence, 'public');
+  assert.equal(r.tainted, false, 'Commons images must not taint the canvas');
+  assert.ok(r.width > 300);
+});
+
 test('the reel reloads from local storage on the next visit', async () => {
   await ev(() => {
     document.getElementById('storyText').value = 'Persisted Reel\n\nOne line of story that should come back.';

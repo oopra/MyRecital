@@ -715,8 +715,55 @@ function drawCaption(ctx, project, scene, localT, w, h) {
 
 // ---------------------------------------------------------------- one scene
 
+// Draw a scene's picture, cover-fitted around its focal point. Returns false when the
+// image has not been loaded yet, so the caller can fall back to the procedural
+// background — a slow network degrades the look instead of breaking the frame.
+function drawScenePicture(ctx, project, scene, w, h) {
+  const picture = scene.picture;
+  const img = picture && pictureImage(picture.src);
+  if (!img || !img.width || !img.height) return false;
+
+  const focus = scene.pictureFocus || { x: 0.5, y: 0.42 };
+  const contain = scene.pictureFit === 'contain';
+  const scale = contain
+    ? Math.min(w / img.width, h / img.height)
+    : Math.max(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  // With cover the overflow is cropped around the focal point; with contain the picture
+  // is centred and the palette fills the gaps behind it.
+  const dx = contain ? (w - dw) / 2 : (w - dw) * mrClamp01(focus.x);
+  const dy = contain ? (h - dh) / 2 : (h - dh) * mrClamp01(focus.y);
+
+  if (contain) {
+    const colors = paletteOf(project);
+    ctx.fillStyle = colors[0];
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(img, dx, dy, dw, dh);
+
+  // Grade: pull every picture toward the reel's palette so a Ravi Varma oleograph and a
+  // British Museum scan sitting in the same reel read as one film rather than a slideshow.
+  const grade = scene.pictureGrade != null ? scene.pictureGrade : 0.28;
+  if (grade > 0) {
+    const colors = paletteOf(project);
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = grade * 0.75;
+    ctx.fillStyle = colors[1];
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = grade * 0.4;
+    ctx.fillStyle = colors[3];
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+  return true;
+}
+
 // Background + camera, without the caption. Split out because transitions cross-fade
-// backgrounds while captions stay crisp on top.
+// backgrounds while captions stay crisp on top. A scene with a picture gets the same
+// camera move applied to the artwork — that is the whole Ken Burns effect, for free.
 function drawSceneBackground(ctx, project, scene, localT, w, h) {
   const colors = scene.accent
     ? paletteOf(project).slice(0, 3).concat([scene.accent, paletteOf(project)[4]])
@@ -728,8 +775,10 @@ function drawSceneBackground(ctx, project, scene, localT, w, h) {
   ctx.rotate(cam.rotate);
   ctx.scale(cam.scale, cam.scale);
   ctx.translate(-w / 2, -h / 2);
-  const fn = MR_BG_FUNCTIONS[scene.background] || bgGradient;
-  fn(ctx, w, h, colors, scene, localT + scene.seed * 0.01);
+  if (!drawScenePicture(ctx, project, scene, w, h)) {
+    const fn = MR_BG_FUNCTIONS[scene.background] || bgGradient;
+    fn(ctx, w, h, colors, scene, localT + scene.seed * 0.01);
+  }
   ctx.restore();
 }
 

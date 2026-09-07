@@ -57,9 +57,11 @@ function downloadText(text, filename, type) {
 
 // Record the whole reel. `onProgress(fraction, seconds)` is called each frame so the UI
 // can show a real progress bar; the returned promise resolves with { blob, mime, ext }.
+// Record the reel. Pictures are warmed first: starting the recorder before they load
+// would burn the fallback background into the opening seconds and then pop.
 function exportVideo(project, opts) {
   const o = opts || {};
-  return new Promise((resolve, reject) => {
+  return preloadPictures(project).then(() => new Promise((resolve, reject) => {
     const mime = pickRecordingMime();
     if (mime === null) { reject(new Error('This browser cannot record video (no MediaRecorder).')); return; }
 
@@ -132,18 +134,20 @@ function exportVideo(project, opts) {
     }
     requestAnimationFrame(frame);
     if (!audioStarted) mrAudioStop();
-  });
+  }));
 }
 
 // A still, at full export resolution — the cover image for the upload, or a thumbnail
 // pulled from whichever moment the scrubber is parked on.
 function exportStill(project, t) {
   const dim = dimensionsOf(project);
-  const canvas = document.createElement('canvas');
-  canvas.width = dim.w;
-  canvas.height = dim.h;
-  renderFrame(canvas.getContext('2d'), project, t, { width: dim.w, height: dim.h });
-  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
+  return preloadPictures(project).then(() => new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = dim.w;
+    canvas.height = dim.h;
+    renderFrame(canvas.getContext('2d'), project, t, { width: dim.w, height: dim.h });
+    canvas.toBlob((blob) => resolve(blob), 'image/png');
+  }));
 }
 
 // The project file: plain JSON, so a reel can be re-opened, diffed, or handed to someone
@@ -164,7 +168,8 @@ function importProjectJSON(text) {
     scenes: data.scenes.map((scene) => Object.assign(makeScene(scene.text || '', {
       mood: scene.mood, background: scene.background, motion: scene.motion, transition: scene.transition,
       captionStyle: scene.captionStyle, captionPosition: scene.captionPosition, emphasis: scene.emphasis,
-      accent: scene.accent, intensity: scene.intensity, duration: scene.duration, seed: scene.seed, kind: scene.kind
+      accent: scene.accent, intensity: scene.intensity, duration: scene.duration, seed: scene.seed, kind: scene.kind,
+      picture: scene.picture, pictureFit: scene.pictureFit, pictureFocus: scene.pictureFocus, pictureGrade: scene.pictureGrade
     }), { id: scene.id || undefined }))
   };
   for (const scene of project.scenes) if (!scene.id) scene.id = mrSceneId();

@@ -40,6 +40,11 @@ function bootMyRecital() {
   sizePreview();
   afterChange();
   reportExportSupport();
+  // A restored reel references its artwork by URL, so warm the cache and repaint once
+  // the pictures land. Until then scenes show their procedural background.
+  preloadPictures(ed.project).then((result) => {
+    if (result.total) { drawPreview(); renderTimeline(); }
+  });
   // The first render can land before web fonts settle; repaint once they have.
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawPreview());
 }

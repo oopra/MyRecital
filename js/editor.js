@@ -63,6 +63,7 @@ function afterChange() {
   renderTimeline();
   syncInspector();
   syncStyleControls();
+  syncPicturePanel();
   syncPublishKit();
   drawPreview();
   updateTransport();
@@ -204,6 +205,13 @@ function renderTimeline() {
     meta.className = 'clip-meta';
     meta.innerHTML = `<b>${i + 1}</b><span>${scene.duration.toFixed(1)}s</span>`;
     card.appendChild(meta);
+    if (scene.picture) {
+      const mark = document.createElement('span');
+      mark.className = 'clip-picture';
+      mark.textContent = '▣';
+      mark.title = creditLine(scene.picture);
+      card.appendChild(mark);
+    }
     const caption = document.createElement('div');
     caption.className = 'clip-text';
     caption.textContent = scene.text.slice(0, 44) + (scene.text.length > 44 ? '…' : '');
@@ -260,6 +268,7 @@ function selectScene(id, seekToIt) {
   }
   renderTimeline();
   syncInspector();
+  syncPicturePanel();
   drawPreview();
 }
 
@@ -533,6 +542,259 @@ function moveScene(delta) {
   });
 }
 
+// ---------------------------------------------------------------- pictures
+
+let mrSearchAbort = null;      // in-flight Commons search, so a new one cancels the old
+let mrIllustrating = false;
+
+function pictureStatus(text) {
+  $('searchStatus').textContent = text || '';
+}
+
+// Render the search results as clickable cards. Every card carries its licence, because
+// choosing a picture is also choosing an obligation.
+function renderResults(results) {
+  const box = $('imageResults');
+  box.innerHTML = '';
+  for (const picture of results) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'result';
+    card.title = creditLine(picture);
+    const img = document.createElement('img');
+    img.src = picture.src;
+    img.alt = picture.title;
+    img.loading = 'lazy';
+    card.appendChild(img);
+    const badge = document.createElement('span');
+    badge.className = 'badge' + (picture.licenceClass === 'attribution' ? ' attrib' : '');
+    badge.textContent = picture.licenceClass === 'public' ? 'PD' : 'BY';
+    card.appendChild(badge);
+    const meta = document.createElement('div');
+    meta.className = 'result-meta';
+    meta.textContent = picture.artist ? `${picture.title} — ${picture.artist}` : picture.title;
+    card.appendChild(meta);
+    card.addEventListener('click', () => usePicture(picture));
+    box.appendChild(card);
+  }
+}
+
+function runSearch(query) {
+  if (!query.trim()) return;
+  if (mrSearchAbort) mrSearchAbort.abort();
+  mrSearchAbort = new AbortController();
+  pictureStatus('Searching…');
+  searchCommons(query, {
+    limit: 12,
+    publicDomainOnly: $('publicDomainOnly').checked,
+    signal: mrSearchAbort.signal
+  }).then((results) => {
+    renderResults(results);
+    pictureStatus(results.length ? `${results.length} usable results` : 'Nothing usable — try different words');
+  }).catch((err) => {
+    if (err.name === 'AbortError') return;
+    $('imageResults').innerHTML = '';
+    pictureStatus('Could not reach Commons: ' + err.message);
+  });
+}
+
+// Assign a picture to the selected scene, then preload it so the very next repaint
+// already shows the artwork rather than the fallback background.
+function usePicture(picture) {
+  const id = ed.selectedId;
+  if (!id) return;
+  editScene('use picture', (scene) => { scene.picture = picture; });
+  loadPicture(picture.src).then(() => { drawPreview(); renderTimeline(); }, () => {
+    pictureStatus('That image would not load — pick another');
+  });
+}
+
+// The one-button version: search per scene using its own proper nouns, take the best
+// usable hit, and prefer not to repeat a picture inside one reel.
+//
+// The fallback chain matters more than it looks. A beat like "I will not fight, he said"
+// has no proper nouns, and a strict no-repeats rule starves later scenes once the good
+// results are taken — both leave bare scenes in the middle of an otherwise illustrated
+// reel, which reads as broken. So: the scene's own query, then the reel-wide hint, then
+// a repeat of something already used, and only then nothing.
+async function illustrateAll() {
+  if (mrIllustrating) return;
+  mrIllustrating = true;
+  const bar = $('illustrateBar');
+  $('illustrateProgress').hidden = false;
+  const publicDomainOnly = $('publicDomainOnly').checked;
+  const used = new Set();
+  const seen = [];                 // every usable result, for the repeat fallback
+  const found = {};
+  const scenes = ed.project.scenes.slice();
+  const hint = (ed.project.style.imageHint || '').trim();
+  let done = 0;
+
+  // Wikimedia rate-limits bursts, and illustrating a ten-scene reel is a burst. Space
+  // the searches out and stop early if we get limited anyway, rather than hammering on
+  // and getting the user's IP throttled.
+  let rateLimited = false;
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const search = async (query) => {
+    if (!query || rateLimited) return [];
+    try {
+      return await searchCommons(query, { limit: 8, publicDomainOnly });
+    } catch (err) {
+      if (err && err.rateLimited) rateLimited = true;
+      return [];
+    }
+  };
+
+  for (const scene of scenes) {
+    let results = await search(imageQueryFor(scene, ed.project));
+    let pick = results.find((r) => !used.has(r.src));
+    if (!pick && hint) {
+      results = await search(hint);
+      pick = results.find((r) => !used.has(r.src));
+    }
+    for (const r of results) if (!seen.some((s) => s.src === r.src)) seen.push(r);
+    if (!pick) pick = seen[Math.floor(Math.random() * seen.length)] || null;
+    if (pick) { used.add(pick.src); found[scene.id] = pick; }
+    done++;
+    bar.style.width = ((done / scenes.length) * 100).toFixed(1) + '%';
+    pictureStatus(rateLimited
+      ? 'Wikimedia is rate-limiting — stopping here. Wait a moment and run it again.'
+      : `Illustrated ${Object.keys(found).length} of ${done}…`);
+    if (rateLimited) break;
+    await pause(350);
+  }
+  commit('illustrate every scene', (p) => {
+    for (const scene of p.scenes) if (found[scene.id]) scene.picture = found[scene.id];
+  });
+  await preloadPictures(ed.project);
+  drawPreview();
+  renderTimeline();
+  $('illustrateProgress').hidden = true;
+  bar.style.width = '0%';
+  pictureStatus(`Illustrated ${Object.keys(found).length} of ${scenes.length} scenes`);
+  mrIllustrating = false;
+}
+
+function syncPicturePanel() {
+  const scene = selectedScene();
+  $('pictureEditor').hidden = !scene;
+  $('noPictureScene').hidden = !!scene;
+  ed.suppress = true;
+  $('imageHint').value = ed.project.style.imageHint || '';
+  ed.suppress = false;
+  if (!scene) { renderCredits(); return; }
+
+  const picture = scene.picture;
+  $('currentPicture').hidden = !picture;
+  $('pictureControls').hidden = !picture;
+  if (picture) {
+    const box = $('currentPicture');
+    box.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = picture.src;
+    img.alt = '';
+    const text = document.createElement('div');
+    const name = document.createElement('b');
+    name.textContent = picture.title;
+    text.appendChild(name);
+    text.appendChild(document.createTextNode(
+      [picture.artist, picture.date, picture.licence].filter(Boolean).join(' · ')));
+    box.appendChild(img);
+    box.appendChild(text);
+    $('pictureSource').href = picture.page;
+
+    ed.suppress = true;
+    $('pictureFit').value = scene.pictureFit || 'cover';
+    $('pictureGrade').value = String(scene.pictureGrade);
+    $('gradeValue').textContent = Number(scene.pictureGrade).toFixed(2);
+    const focus = scene.pictureFocus || { x: 0.5, y: 0.42 };
+    $('focusX').value = String(focus.x);
+    $('focusY').value = String(focus.y);
+    $('focusXValue').textContent = Number(focus.x).toFixed(2);
+    $('focusYValue').textContent = Number(focus.y).toFixed(2);
+    ed.suppress = false;
+  }
+  // Prefill the search with what this scene is actually about.
+  if (!$('imageQuery').value || $('imageQuery').dataset.auto === 'yes') {
+    $('imageQuery').value = imageQueryFor(scene, ed.project);
+    $('imageQuery').dataset.auto = 'yes';
+  }
+  renderCredits();
+}
+
+function renderCredits() {
+  const box = $('creditsBox');
+  box.innerHTML = '';
+  const credits = projectCredits(ed.project);
+  if (!credits.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.textContent = 'No pictures yet. Credits appear here and in your description automatically.';
+    box.appendChild(empty);
+    return;
+  }
+  const row = document.createElement('div');
+  row.className = 'kit-row';
+  const head = document.createElement('div');
+  head.className = 'kit-head';
+  head.innerHTML = `<span>${credits.length} artwork${credits.length > 1 ? 's' : ''}</span>`;
+  const copy = document.createElement('button');
+  copy.className = 'btn tiny ghost';
+  copy.textContent = 'Copy';
+  copy.addEventListener('click', () => copyToClipboard(credits.join('\n'), copy));
+  head.appendChild(copy);
+  const body = document.createElement('pre');
+  body.className = 'kit-body';
+  body.textContent = credits.join('\n');
+  row.appendChild(head);
+  row.appendChild(body);
+  box.appendChild(row);
+  if (projectNeedsAttribution(ed.project)) {
+    const warn = document.createElement('p');
+    warn.className = 'kit-warn';
+    warn.textContent = 'Some artwork is CC-BY/CC-BY-SA: these credits must stay in your video description.';
+    box.appendChild(warn);
+  }
+}
+
+function wirePictures() {
+  $('imageSearchBtn').addEventListener('click', () => {
+    $('imageQuery').dataset.auto = 'no';
+    runSearch($('imageQuery').value);
+  });
+  $('imageQuery').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); $('imageQuery').dataset.auto = 'no'; runSearch($('imageQuery').value); }
+  });
+  $('publicDomainOnly').addEventListener('change', () => {
+    if ($('imageQuery').value.trim()) runSearch($('imageQuery').value);
+  });
+  $('illustrateAllBtn').addEventListener('click', illustrateAll);
+  $('clearPicturesBtn').addEventListener('click', () => {
+    commit('clear pictures', (p) => { for (const scene of p.scenes) scene.picture = null; });
+  });
+  $('removePictureBtn').addEventListener('click', () => editScene('remove picture', (scene) => { scene.picture = null; }));
+  $('imageHint').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set style hint', (p) => { p.style.imageHint = $('imageHint').value; });
+  });
+  $('pictureFit').addEventListener('change', () => {
+    if (ed.suppress) return;
+    editScene('set framing', (scene) => { scene.pictureFit = $('pictureFit').value; });
+  });
+  bindRange('pictureGrade', (p, v) => {
+    const s = p.scenes.find((x) => x.id === ed.selectedId);
+    if (s) s.pictureGrade = v;
+  }, (v) => { $('gradeValue').textContent = v.toFixed(2); });
+  bindRange('focusX', (p, v) => {
+    const s = p.scenes.find((x) => x.id === ed.selectedId);
+    if (s) s.pictureFocus = { x: v, y: (s.pictureFocus || {}).y != null ? s.pictureFocus.y : 0.42 };
+  }, (v) => { $('focusXValue').textContent = v.toFixed(2); });
+  bindRange('focusY', (p, v) => {
+    const s = p.scenes.find((x) => x.id === ed.selectedId);
+    if (s) s.pictureFocus = { x: (s.pictureFocus || {}).x != null ? s.pictureFocus.x : 0.5, y: v };
+  }, (v) => { $('focusYValue').textContent = v.toFixed(2); });
+}
+
 // ---------------------------------------------------------------- building
 
 function buildFromText() {
@@ -686,6 +948,7 @@ function bindRange(id, write, format) {
 
 function wireEditor() {
   buildSelects();
+  wirePictures();
 
   $('buildBtn').addEventListener('click', buildFromText);
   $('sampleBtn').addEventListener('click', () => {
