@@ -1328,23 +1328,29 @@ test('depth decides what covers what', async () => {
     const rock = makeProp('rock', { tint: '#ff0000', layer: 'front', start: { x: 0.5, y: 0.9, scale: 0.6 } });
     scene.stage = makeStage({ actors: [actor], props: [rock] });
 
+    // Count over a band rather than probing one pixel: the idle pose shifts the actor's
+    // weight from foot to foot, so a single sample lands on a leg or misses it by chance.
     const sample = () => {
       const c = document.createElement('canvas');
       c.width = 216; c.height = 384;
       const x = c.getContext('2d');
       x.scale(216 / 1080, 384 / 1920);
       renderFrame(x, p, 1.5, { width: 1080, height: 1920 });
-      // Sample the actor's knee height, where the rock overlaps.
-      const data = x.getImageData(108, Math.round(384 * 0.82), 1, 1).data;
-      return { r: data[0], g: data[1] };
+      const band = x.getImageData(86, Math.round(384 * 0.78), 44, 24).data;
+      let r = 0, g = 0;
+      for (let i = 0; i < band.length; i += 4) {
+        if (band[i] > 150 && band[i + 1] < 120) r++;
+        if (band[i + 1] > 150 && band[i] < 120) g++;
+      }
+      return { r, g };
     };
     const inFront = sample();
     rock.layer = 'back';
     const behind = sample();
     return { inFront, behind, order: stageItems(scene, 1.5).map((i) => i.kind) };
   });
-  assert.ok(r.inFront.r > 150 && r.inFront.g < 120, 'a front prop covers the actor');
-  assert.ok(r.behind.g > 150, 'a back prop is covered by the actor');
+  assert.ok(r.inFront.r > 40 && r.inFront.g === 0, `a front prop covers the actor (${JSON.stringify(r.inFront)})`);
+  assert.ok(r.behind.g > 40, `a back prop is covered by the actor (${JSON.stringify(r.behind)})`);
   assert.deepEqual(r.order, ['prop', 'actor'], 'scenery is painted before the cast');
 });
 
@@ -1604,13 +1610,13 @@ test('actions come from the verb about that character, not from elsewhere in the
     walked: actionFor('A traveller came down the road at noon.', 'traveller'),
     // "looked up" is not walking; the beat's other sentence contains "walked".
     looked: actionFor('Aruna looked up from her wheel. You have walked a long way, she said.', 'Aruna'),
-    sat: actionFor('The traveller sat down beside the fire.', 'traveller'),
+    sat: actionFor('The traveller sat down beside the fire.', 'traveller'),   // sitting, not kneeling
     pointed: actionFor('Aruna pointed at the empty pot.', 'Aruna'),
     nothing: actionFor('The rain fell on the roof.', 'Aruna')
   }));
   assert.equal(r.walked, 'walk');
   assert.equal(r.looked, 'idle', 'a verb from another sentence must not be borrowed');
-  assert.equal(r.sat, 'kneel');
+  assert.equal(r.sat, 'sit');
   assert.equal(r.pointed, 'point');
   assert.equal(r.nothing, 'fall', 'an unattributable verb still falls back to the beat');
 });
@@ -1646,7 +1652,7 @@ test('directing stages the whole reel: cast, actions, dialogue and scenery', asy
   assert.ok(r.summary.cast.length >= 2);
   assert.equal(r.staged, true, 'every beat has somebody on stage');
   assert.ok(r.actions.some((list) => list.includes('walk')), 'the arrival walks');
-  assert.ok(r.actions.some((list) => list.includes('kneel')), 'sitting down reads as kneeling');
+  assert.ok(r.actions.some((list) => list.includes('sit')), 'sitting down gets the sit pose, not a kneel');
   assert.equal(r.speakers, 2, 'two beats have an identified speaker');
   assert.ok(r.props >= 3, `scenery placed in ${r.props} slots`);
 });
@@ -1706,6 +1712,214 @@ test('the direct button stages the reel and one undo puts it back', async () => 
   assert.equal(await ev(() => ed.project.scenes.filter((s) => s.stage && s.stage.actors.length).length), 0,
     'one undo clears the whole pass');
   assert.deepEqual(page.__errors, []);
+});
+
+// ----------------------------------------------------------------- movement
+
+test('the walk bends the swing knee and keeps the stance leg straight', async () => {
+  const r = await ev(() => {
+    // Sample a whole stride and look at how the knees behave.
+    const samples = [];
+    for (let i = 0; i <= 20; i++) {
+      const pose = poseFor('walk', 0, 0, false, { cycle: i / 20, tIn: 5 });
+      samples.push({ hipL: pose.hipL, kneeL: pose.kneeL, kneeR: pose.kneeR });
+    }
+    const maxKnee = Math.max(...samples.map((s) => s.kneeL));
+    // The stance leg is the one whose hip is forward and moving back.
+    const atContact = samples.reduce((best, s) => (s.hipL > best.hipL ? s : best), samples[0]);
+    const alternates = samples.some((s) => s.kneeL > 0.4 && s.kneeR < 0.15) &&
+      samples.some((s) => s.kneeR > 0.4 && s.kneeL < 0.15);
+    return { maxKnee, kneeAtContact: atContact.kneeL, alternates };
+  });
+  // Before this pass both legs stayed rigid: two sticks scissoring.
+  assert.ok(r.maxKnee > 0.5, `swing knee should bend hard, peaked at ${r.maxKnee}`);
+  assert.ok(r.kneeAtContact < 0.2, `the leg taking the weight should be near straight, was ${r.kneeAtContact}`);
+  assert.equal(r.alternates, true, 'the legs take turns');
+});
+
+test('the walk cycle follows distance travelled, so feet do not skate', async () => {
+  const r = await ev(() => {
+    const make = (endX) => {
+      const actor = makeActor('W', { start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } });
+      setKey(actor, 4, { x: endX });
+      return actor;
+    };
+    const scene = buildStoryboard('A walk.', { titleCard: false }).scenes[0];
+    const far = make(0.9);
+    const near = make(0.25);
+    return {
+      farCycles: strideCycles(far, 4, stateAt(far, 4)),
+      nearCycles: strideCycles(near, 4, stateAt(near, 4)),
+      stillPose: posedFor(makeActor('S', { start: { x: 0.5, y: 0.88, scale: 0.5, action: 'walk' } }), scene, 2)
+    };
+  });
+  // Same four seconds, four times the distance — so four times the strides.
+  assert.ok(r.farCycles > r.nearCycles * 3, `${r.farCycles.toFixed(2)} vs ${r.nearCycles.toFixed(2)} strides`);
+  assert.ok(r.farCycles > 2 && r.farCycles < 12, 'a sensible number of steps for the distance');
+  assert.ok(r.stillPose, 'walking on the spot still produces a pose');
+});
+
+test('the walking arms swing evenly, forward and back by the same amount', async () => {
+  const r = await ev(() => {
+    const samples = [];
+    for (let i = 0; i < 24; i++) {
+      const cycle = i / 24;
+      const p = poseFor('walk', cycle, 0, false, { cycle });
+      // The drawing splays each arm outward by 0.17 before swinging it, so the angle that
+      // actually reaches the canvas is the pose angle plus that splay.
+      samples.push({ left: p.shoulderL - 0.17, right: p.shoulderR + 0.17 });
+    }
+    const span = (key) => {
+      const v = samples.map((s) => s[key]);
+      return { forward: Math.max(...v), back: Math.min(...v) };
+    };
+    return { left: span('left'), right: span('right') };
+  });
+  for (const [side, s] of Object.entries(r)) {
+    // A stride is symmetrical: each arm goes as far back as it comes forward. It did not,
+    // because the outward splay was left in the swing — it cancelled half of one arm's
+    // travel and doubled the other's, so the figure hunched on alternate steps.
+    assert.ok(Math.abs(s.forward + s.back) < 0.06,
+      `the ${side} arm swings evenly (forward ${s.forward.toFixed(2)}, back ${s.back.toFixed(2)})`);
+    assert.ok(s.forward > 0.04, `the ${side} arm actually swings (${s.forward.toFixed(2)})`);
+    // The shoulders are close together on a drawn figure. A full anatomical swing throws
+    // each hand across the midline and the two arms knot together at the waist.
+    assert.ok(s.forward < 0.3, `the ${side} arm stays at the side (${s.forward.toFixed(2)})`);
+  }
+  // ...and the two arms are opposites, not a pair.
+  assert.ok(r.left.forward * r.right.forward > 0, 'both arms swing');
+  assert.ok(Math.abs(r.left.forward + r.right.back) < 0.06, 'the arms mirror each other');
+});
+
+test('gestures reach in front of the character, not behind', async () => {
+  const r = await ev(() => {
+    // How far the drawing extends either side of the actor's own centre line. Counting ink
+    // in halves does not work: the torso, head and legs dominate the total and drown out the
+    // one limb under test. Reach does not — it is exactly what a gesture changes.
+    const reach = (action) => {
+      const c = document.createElement('canvas');
+      c.width = 240; c.height = 260;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 240, 260);
+      // tIn well past the settle, so the gesture is fully extended.
+      drawActor(x, makeActor('A', { top: '#c2452d' }), poseFor(action, 2, 0, false, { tIn: 2 }), 120, 250, 230);
+      const data = x.getImageData(0, 0, 240, 260).data;
+      const column = new Array(240).fill(0);
+      for (let y = 0; y < 260; y++) {
+        for (let px = 0; px < 240; px++) {
+          const i = (y * 240 + px) * 4;
+          if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) continue;   // background
+          column[px]++;
+        }
+      }
+      let lo = 120, hi = 120;
+      // Six pixels of ink, so a stray antialiased edge is not mistaken for a limb.
+      for (let px = 0; px < 240; px++) if (column[px] >= 6) { lo = Math.min(lo, px); hi = Math.max(hi, px); }
+      return { behind: 120 - lo, ahead: hi - 120 };
+    };
+    return { point: reach('point'), wave: reach('wave'), talk: reach('talk'), idle: reach('idle') };
+  });
+  // A character drawn facing right must gesture to the right. All three used negative angles
+  // before, which aimed the arm behind them.
+  assert.ok(r.point.ahead > r.point.behind * 1.8, `point reaches forward (${JSON.stringify(r.point)})`);
+  assert.ok(r.wave.ahead > r.wave.behind * 1.3, `wave reaches forward (${JSON.stringify(r.wave)})`);
+  assert.ok(r.talk.ahead > r.talk.behind * 1.15, `talk gestures forward (${JSON.stringify(r.talk)})`);
+  // ...and a gesture is a reach, not a permanent stance: standing still stays symmetrical.
+  assert.ok(Math.abs(r.idle.ahead - r.idle.behind) < r.idle.behind * 0.35,
+    `idle stays roughly symmetrical (${JSON.stringify(r.idle)})`);
+});
+
+test('a gesture starts from rest instead of appearing fully formed', async () => {
+  const r = await ev(() => ({
+    atStart: poseFor('point', 0, 0, false, { tIn: 0 }).shoulderR,
+    settling: poseFor('point', 0.2, 0, false, { tIn: 0.2 }).shoulderR,
+    settled: poseFor('point', 1.5, 0, false, { tIn: 1.5 }).shoulderR,
+    talkQuiet: poseFor('talk', 0, 0, false, { tIn: 0 }).elbowR
+  }));
+  assert.ok(Math.abs(r.atStart) < 0.15, `the arm starts down, was ${r.atStart}`);
+  assert.ok(r.settling > r.atStart && r.settling < r.settled + 0.3, 'it travels');
+  assert.ok(r.settled > 1.2, `and ends extended, at ${r.settled}`);
+  assert.ok(Math.abs(r.talkQuiet) < 0.4, 'talking begins from rest too');
+});
+
+test('actions cross-fade instead of snapping', async () => {
+  const r = await ev(() => {
+    const scene = buildStoryboard('Standing, then kneeling.', { titleCard: false }).scenes[0];
+    scene.duration = 4;
+    const actor = makeActor('A', { start: { x: 0.5, y: 0.88, scale: 0.5, action: 'idle' } });
+    setKey(actor, 2, { action: 'kneel' });
+    scene.stage = makeStage({ actors: [actor] });
+    const before = posedFor(actor, scene, 1.9).hipL;
+    const during = posedFor(actor, scene, 2.12).hipL;
+    const after = posedFor(actor, scene, 3.5).hipL;
+    return { before, during, after };
+  });
+  assert.ok(r.after > 1, 'the kneel arrives');
+  // Mid-blend the hip is between standing and kneeling — not at either end.
+  assert.ok(r.during > r.before + 0.15 && r.during < r.after - 0.15,
+    `mid-transition hip was ${r.during.toFixed(2)}, between ${r.before.toFixed(2)} and ${r.after.toFixed(2)}`);
+});
+
+test('sitting puts the body down at seat height, not standing height', async () => {
+  const r = await ev(() => {
+    const headTop = (action) => {
+      const c = document.createElement('canvas');
+      c.width = 200; c.height = 300;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 200, 300);
+      drawActor(x, makeActor('A', { top: '#1f7a53' }), poseFor(action, 2, 0, false, { tIn: 2 }), 100, 270, 240);
+      const data = x.getImageData(0, 0, 200, 300).data;
+      for (let y = 0; y < 300; y++) {
+        for (let px = 0; px < 200; px++) {
+          const i = (y * 200 + px) * 4;
+          if (data[i] < 240 || data[i + 1] < 240 || data[i + 2] < 240) return y;
+        }
+      }
+      return 300;
+    };
+    return { standing: headTop('idle'), sitting: headTop('sit') };
+  });
+  // Sitting lowers the whole figure; the head must come down with it.
+  assert.ok(r.sitting > r.standing + 25, `sitting head at ${r.sitting}, standing at ${r.standing}`);
+});
+
+test('a seated character rests their hands on their own knees', async () => {
+  const r = await ev(() => poseFor('sit', 2, 0, false, { tIn: 2 }));
+  // Joint angles are absolute, not mirrored, so a seated pose cannot mirror its signs:
+  // doing that swung the right arm backwards and crossed the hands onto opposite knees.
+  const forearmR = r.shoulderR + r.elbowR;
+  const forearmL = r.shoulderL + r.elbowL;
+  assert.ok(forearmR > 0.4, `the right forearm comes forward, was ${forearmR.toFixed(2)}`);
+  assert.ok(forearmL > 0.4, `the left forearm comes forward, was ${forearmL.toFixed(2)}`);
+  assert.ok(Math.abs(forearmR - forearmL) < 0.5, 'and neither reaches across the other');
+});
+
+test('an arm crossing the body stays visible against the garment', async () => {
+  const r = await ev(() => {
+    const c = document.createElement('canvas');
+    c.width = 200; c.height = 300;
+    const x = c.getContext('2d');
+    x.fillStyle = '#ffffff'; x.fillRect(0, 0, 200, 300);
+    // Thinking folds the arm up across the chest — the one pose drawn entirely inside the
+    // silhouette, where the ink outline cannot separate it from the torso.
+    x.fillStyle = '#c2452d';
+    drawActor(x, makeActor('A', { top: '#c2452d' }), poseFor('think', 2, 0, false, { tIn: 2 }), 100, 270, 240);
+    const data = x.getImageData(0, 0, 200, 300).data;
+    let torso = 0, other = 0;
+    for (let y = 90; y < 165; y++) {
+      for (let px = 80; px < 120; px++) {
+        const i = (y * 200 + px) * 4;
+        const [red, green, blue] = [data[i], data[i + 1], data[i + 2]];
+        if (red > 240 && green > 240 && blue > 240) continue;
+        // Within a few points of the garment colour, or something else drawn over it.
+        if (Math.abs(red - 194) < 12 && Math.abs(green - 69) < 12 && Math.abs(blue - 45) < 12) torso++;
+        else other++;
+      }
+    }
+    return { torso, other };
+  });
+  assert.ok(r.torso > 200, `the chest is drawn (${JSON.stringify(r)})`);
+  assert.ok(r.other > r.torso * 0.12, `the arm is distinguishable from it (${JSON.stringify(r)})`);
 });
 
 test('the reel reloads from local storage on the next visit', async () => {

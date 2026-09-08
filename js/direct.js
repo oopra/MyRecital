@@ -16,7 +16,8 @@ const MR_ACTION_VERBS = [
   ['point', /\b(point|show|gestur|accus|indicat|aim|drew his|rais(?:ed)? (?:his|her) (?:hand|arm))/i],
   ['wave',  /\b(wav|greet|beckon|hail|welcom|salut)/i],
   ['think', /\b(thought|think|wonder|consider|remember|hesitat|puzzl|doubt|ponder|realis|realiz)/i],
-  ['kneel', /\b(knelt|kneel|bow|sat|sit|crouch|pray|stoop|sank|sunk)/i],
+  ['sit',   /\b(sat|sit|seated|rested|settled)/i],
+  ['kneel', /\b(knelt|kneel|bow|crouch|pray|stoop|sank|sunk)/i],
   ['fall',  /\b(fell|fall|collaps|stumbl|tumbl|dropp|slipp)/i]
 ];
 

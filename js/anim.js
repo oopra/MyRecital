@@ -112,6 +112,78 @@ function actorStateAt(actor, t) {
   return state;
 }
 
+// When did the action showing at time t begin? Gestures need a start — an arm that
+// appears already raised has no life in it — and blending needs to know how long ago the
+// pose changed.
+function actionStartAt(actor, t) {
+  const keys = actor.keys || [];
+  let start = 0;
+  let current = null;
+  for (const key of keys) {
+    if (key.t > t + 0.0001) break;
+    const action = key.action || MR_DEFAULT_KEY.action;
+    if (action !== current) { current = action; start = key.t; }
+  }
+  return { action: current || MR_DEFAULT_KEY.action, start, previous: previousAction(actor, start) };
+}
+
+function previousAction(actor, before) {
+  let current = null;
+  for (const key of actor.keys || []) {
+    if (key.t >= before - 0.0001) break;
+    current = key.action || MR_DEFAULT_KEY.action;
+  }
+  return current;
+}
+
+// How far this actor has travelled, in strides, by time t. Tying the walk cycle to
+// distance rather than to the clock is what stops the feet skating: a character crossing
+// the stage slowly takes slow steps, and one standing still stops stepping.
+function strideCycles(actor, t, state) {
+  const keys = actor.keys || [];
+  if (keys.length < 2) return null;
+  // A stride is about two steps, and a step is a bit under half a leg length. Everything
+  // is in frame fractions, so it scales with how big the character is drawn.
+  const strideLength = Math.max(0.001, 0.42 * (state.scale || 0.5));
+  let distance = 0;
+  let previous = stateAt(actor, keys[0].t);
+  const sampleAt = [];
+  for (let time = keys[0].t; time < t; time += 0.05) sampleAt.push(time);
+  sampleAt.push(t);
+  for (const time of sampleAt) {
+    const here = stateAt(actor, time);
+    distance += Math.abs(here.x - previous.x);
+    previous = here;
+  }
+  return distance / strideLength;
+}
+
+// The pose an actor is in right now: the right cycle, started at the right moment, and
+// cross-faded from whatever they were doing before.
+function posedFor(actor, scene, localT) {
+  const state = stateAt(actor, localT);
+  const { action, start, previous } = actionStartAt(actor, localT);
+  const speaking = actorSpeaking(actor, scene, localT);
+  const tIn = Math.max(0, localT - start);
+
+  const opts = { tIn };
+  if (action === 'walk') {
+    const cycles = strideCycles(actor, localT, state);
+    // Walking on the spot still needs a cycle, so fall back to the clock when the
+    // character is not actually going anywhere.
+    if (cycles != null && cycles > 0.02) opts.cycle = cycles;
+  }
+  const pose = poseFor(action, localT, actor.seed, speaking, opts);
+  if (!previous || previous === action) return pose;
+
+  // Ease out of the previous action rather than snapping — a character should sit down,
+  // not teleport into a sitting position.
+  const blend = mrSat(tIn / 0.28);
+  if (blend >= 1) return pose;
+  const before = poseFor(previous, localT, actor.seed, speaking, { tIn: tIn + 1 });
+  return blendPoses(before, pose, mrEaseKey(blend));
+}
+
 // How much this actor's mouth is open right now, 0..1 (or false for "not speaking").
 // With narration it follows the measured loudness of the line — real lip-sync. Without
 // it, an actor set to "talk" falls back to the old timed flap, which is all you can do
@@ -166,7 +238,7 @@ function drawStage(ctx, scene, localT, w, h, look) {
       drawProp(ctx, item, state, w, h);
       continue;
     }
-    const pose = poseFor(state.action, localT, item.seed, actorSpeaking(item, scene, localT));
+    const pose = posedFor(item, scene, localT);
     const height = state.scale * h;
     ctx.save();
     if (state.rotate) {

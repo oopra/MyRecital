@@ -54,7 +54,7 @@ const MR_EXPRESSIONS = {
   worried: { brow: 0.28, eye: 1.05, mouth: 'small' }
 };
 
-const MR_ACTIONS = ['idle', 'talk', 'walk', 'point', 'wave', 'think', 'kneel', 'fall'];
+const MR_ACTIONS = ['idle', 'talk', 'walk', 'point', 'wave', 'think', 'sit', 'kneel', 'fall'];
 
 // ---------------------------------------------------------------- the pose
 //
@@ -64,85 +64,206 @@ const MR_ACTIONS = ['idle', 'talk', 'walk', 'point', 'wave', 'think', 'kneel', '
 function mrPoseBase() {
   return {
     lean: 0, bob: 0, drop: 0, headTurn: 0, headTilt: 0,
-    shoulderL: 0.12, elbowL: 0.15, shoulderR: -0.12, elbowR: -0.15,
-    hipL: 0.05, kneeL: 0, hipR: -0.05, kneeR: 0,
+    shoulderL: 0.06, elbowL: 0.12, shoulderR: -0.06, elbowR: -0.12,
+    hipL: 0.04, kneeL: 0.03, hipR: -0.04, kneeR: 0.03,
     mouthOpen: 0, blink: 0
   };
 }
 
-// Every cycle is driven by the scene clock and the actor's own seed, so two characters
-// doing the same thing are not doing it in lockstep.
-function poseFor(action, t, seed, speaking) {
+const mrClampPose = (v) => (v < 0 ? 0 : v);
+const mrEaseOutPose = (u) => 1 - Math.pow(1 - u, 3);
+const mrSat = (u) => (u < 0 ? 0 : u > 1 ? 1 : u);
+
+// Angles are measured from straight DOWN, positive swinging FORWARD — the direction the
+// actor faces. Getting this backwards is how pointing and waving originally aimed behind
+// the character. Useful landmarks: 0 = hanging, 1.57 = horizontal in front, 3.14 = straight up.
+const MR_ARM_FORWARD = Math.PI / 2;
+const MR_ARM_UP = Math.PI;
+
+// A pose at one instant.
+//   t        scene time, for continuous idles like breathing and blinking
+//   opts.tIn seconds since this action began — gestures need to start, not just exist
+//   opts.cycle walk cycles completed, derived from distance travelled so feet do not skate
+function poseFor(action, t, seed, speaking, opts) {
+  const o = opts || {};
   const p = mrPoseBase();
-  const phase = t * 2 * Math.PI;
   const offset = ((seed || 0) % 100) / 100 * Math.PI * 2;
+  const tIn = o.tIn != null ? o.tIn : t;
 
   // Everyone breathes and blinks, whatever else they are doing — stillness reads as dead.
-  p.bob = Math.sin(phase * 0.55 + offset) * 0.004;
+  p.bob = Math.sin(t * 1.1 + offset) * 0.004;
+  const breath = Math.sin(t * 1.1 + offset) * 0.03;
+  p.shoulderL += breath * 0.5;
+  p.shoulderR -= breath * 0.5;
   const blinkCycle = (t + offset) % 4.3;
   p.blink = blinkCycle < 0.12 ? 1 - Math.abs(blinkCycle - 0.06) / 0.06 : 0;
 
   switch (action) {
     case 'walk': {
-      const s = Math.sin(phase * 2.2 + offset);
-      const c = Math.cos(phase * 2.2 + offset);
-      p.hipL = s * 0.55; p.hipR = -s * 0.55;
-      p.kneeL = Math.max(0, -s) * 0.7; p.kneeR = Math.max(0, s) * 0.7;
-      p.shoulderL = -s * 0.5; p.shoulderR = s * 0.5;
-      p.elbowL = 0.25 + Math.max(0, s) * 0.3; p.elbowR = -0.25 - Math.max(0, -s) * 0.3;
-      p.bob = Math.abs(c) * 0.012;
-      p.lean = 0.03;
+      // One cycle is two steps. Phase comes from distance when the caller knows it, so a
+      // slow walk takes slow steps and a stopped character stops stepping.
+      const cycles = o.cycle != null ? o.cycle : t * 0.95;
+      const a = cycles * Math.PI * 2 + offset;
+      const sin = Math.sin(a);
+      const cos = Math.cos(a);
+      const swing = 0.36;   // ~20 degrees each way; 0.5 read as a stage stride
+
+      p.hipL = sin * swing;
+      p.hipR = -sin * swing;
+      // The knee bends on the SWING leg — the one travelling forward, hip velocity
+      // positive — and stays near straight while the other takes the weight. Without this
+      // the legs are two rigid sticks scissoring, which is exactly how it looked.
+      p.kneeL = mrClampPose(cos) * 0.72 + 0.05;
+      p.kneeR = mrClampPose(-cos) * 0.72 + 0.05;
+      // The body rides highest when the legs pass each other and drops at each stride.
+      p.bob += 0.014 * (1 - Math.abs(sin));
+      p.lean = 0.05;
+      // Arms swing opposite the legs, bending more as each one comes forward. Both elbows
+      // bend the same way — the forearm always leads the upper arm. Mirroring the sign, as
+      // the first version did, folded whichever arm was trailing straight across the chest.
+      // The 0.17 cancels the outward splay the drawing adds to each arm: that splay is in
+      // the same plane as the swing, so left it in, one half of every stride came out
+      // shallower than the other and the figure hunched on alternate steps. The swing
+      // itself is small on purpose. The shoulders are only a fifth of a body-height apart,
+      // so an anatomically full swing throws each hand clear across the midline and the
+      // walk alternates between arms flung wide and arms knotted at the waist.
+      p.shoulderL = -sin * 0.13 + 0.17;
+      p.shoulderR = sin * 0.13 - 0.17;
+      p.elbowL = 0.14 + mrClampPose(-sin) * 0.16;
+      p.elbowR = 0.14 + mrClampPose(sin) * 0.16;
+      p.headTilt = Math.sin(a * 2) * 0.015;
       break;
     }
     case 'talk': {
-      p.headTilt = Math.sin(phase * 0.7 + offset) * 0.05;
-      p.shoulderL = 0.12 + Math.sin(phase * 0.9 + offset) * 0.18;
-      p.elbowL = 0.5 + Math.sin(phase * 1.3 + offset) * 0.25;
-      p.shoulderR = -0.1 + Math.sin(phase * 0.8 + 1 + offset) * 0.1;
+      // Beat gestures, not a windmill: bursts of movement with pauses between them, the
+      // way people actually gesture while speaking.
+      const beat = Math.sin(t * 3.2 + offset);
+      const gate = mrSat(0.35 + Math.sin(t * 0.85 + offset * 2) * 1.3);
+      const start = mrEaseOutPose(mrSat(tIn / 0.3));
+      // Hands come UP and FORWARD — held around chest height, moving on the beats. The
+      // first version used negative angles, which swung both arms behind the body and
+      // read as someone standing still with their hands hidden.
+      // The reach is nearly all elbow. A big shoulder angle with a half-bent elbow throws
+      // the hand 75px in front of the body at hip height — a zombie arm, which is what the
+      // first pass drew. A hanging upper arm with a folded elbow puts the hand where people
+      // actually gesture: chest height, a forearm's length in front.
+      p.shoulderR = (-0.12 + beat * 0.18) * gate * start;
+      p.elbowR = (2.3 + beat * 0.28) * gate * start;
+      p.shoulderL = (-0.08 + beat * 0.12) * gate * 0.7 * start;
+      p.elbowL = (2.2 + beat * 0.22) * gate * 0.7 * start;
+      p.headTilt = Math.sin(t * 0.9 + offset) * 0.05;
+      p.headTurn = Math.sin(t * 0.6 + offset) * 0.06;
       break;
     }
     case 'point': {
-      p.shoulderR = -1.35; p.elbowR = -0.1;
-      p.headTurn = 0.15;
+      // Anticipation, a small overshoot, then a settle — the arm arrives rather than
+      // appearing. It also points FORWARD now.
+      const u = mrEaseOutPose(mrSat(tIn / 0.38));
+      const overshoot = Math.sin(mrSat(tIn / 0.38) * Math.PI) * 0.13;
+      // Just under horizontal at the shoulder, with the forearm carrying the last of the
+      // angle back up — a ruler-straight arm reads as a T-pose, not a gesture.
+      p.shoulderR = (MR_ARM_FORWARD - 0.27 + overshoot) * u;
+      p.elbowR = 0.22 * u;
+      p.headTurn = 0.2 * u;
+      p.lean = 0.03 * u;
+      p.shoulderR += Math.sin(t * 1.6 + offset) * 0.02 * u;   // it is held, not frozen
+      p.shoulderL = 0.05;
+      p.elbowL = 0.2;
       break;
     }
     case 'wave': {
-      p.shoulderR = -2.1;
-      p.elbowR = -0.5 + Math.sin(phase * 3 + offset) * 0.45;
+      const u = mrEaseOutPose(mrSat(tIn / 0.3));
+      p.shoulderR = (MR_ARM_UP - 0.55) * u;
+      // The forearm does the waving, pivoting about the elbow.
+      p.elbowR = (-0.15 + Math.sin(t * 6.2 + offset) * 0.5) * u;
+      p.headTilt = 0.05 * u;
+      p.shoulderL = 0.08;
+      p.elbowL = 0.22;
       break;
     }
     case 'think': {
-      p.shoulderR = -1.9; p.elbowR = -1.5;
-      p.headTilt = 0.12; p.headTurn = -0.1;
+      const u = mrEaseOutPose(mrSat(tIn / 0.45));
+      // Hand to the chin. The rig's arms are long next to the short shoulder-to-chin gap,
+      // so a forward upper arm plus a folded elbow lands the hand at the waist, not the
+      // face — which is what the first version did. The upper arm has to drop BACK across
+      // the chest, the only angle from which a fully folded forearm brings the hand up
+      // under the jaw. (Negative is backward here, deliberately, unlike point and wave.)
+      p.shoulderR = -0.86 * u;
+      p.elbowR = -2.55 * u;
+      p.headTilt = 0.14 * u;
+      p.headTurn = -0.1 * u;
+      p.shoulderL = 0.26 * u;     // the other arm just hangs, slightly forward
+      p.elbowL = 0.34 * u;
+      // A held pose still shifts: the weight rocks and the head rolls, slowly.
+      p.bob += Math.sin(t * 0.7 + offset) * 0.004;
+      p.headTilt += Math.sin(t * 0.55 + offset) * 0.02 * u;
+      break;
+    }
+    case 'sit': {
+      // On a seat: thighs forward and level, shins down, hands resting on the knees.
+      const u = mrEaseOutPose(mrSat(tIn / 0.55));
+      p.hipL = 1.36 * u; p.kneeL = 1.5 * u;
+      p.hipR = 1.3 * u; p.kneeR = 1.44 * u;
+      p.drop = 0.19 * u;
+      p.lean = -0.05 * u;
+      // Angles are absolute, not mirrored: mirroring the sign here swung the right arm
+      // backwards and landed each hand on the other knee, arms crossed. Both upper arms
+      // hang; both forearms come forward onto the thighs.
+      p.shoulderL = 0.19 * u; p.elbowL = 0.84 * u;
+      p.shoulderR = -0.15 * u; p.elbowR = 0.84 * u;
       break;
     }
     case 'kneel': {
-      p.hipL = 1.2; p.kneeL = 1.4; p.hipR = 0.2; p.kneeR = 1.5;
-      p.lean = 0.12;
-      // Bent legs reach less far than straight ones, so the hips have to come down or the
-      // character kneels in mid-air — which is exactly what the first version did.
-      p.drop = 0.16;
+      // Down on one knee: the back shin lies along the ground, the front leg is folded.
+      const u = mrEaseOutPose(mrSat(tIn / 0.5));
+      p.hipL = 1.2 * u; p.kneeL = 1.4 * u;
+      p.hipR = 0.2 * u; p.kneeR = 1.5 * u;
+      p.lean = 0.12 * u;
+      p.drop = 0.16 * u;
+      p.shoulderL = 0.2 * u; p.elbowL = 0.35 * u;
+      p.shoulderR = -0.15 * u; p.elbowR = 0.5 * u;    // the leading hand rests on the raised knee
       break;
     }
     case 'fall': {
-      p.lean = 0.5; p.shoulderL = 0.9; p.shoulderR = -0.9;
-      p.hipL = 0.4; p.hipR = -0.3; p.kneeL = 0.5;
-      p.drop = 0.04;
+      const u = mrEaseOutPose(mrSat(tIn / 0.45));
+      p.lean = 0.5 * u;
+      p.shoulderL = 1.15 * u; p.shoulderR = 0.95 * u;   // arms fly forward to break it
+      p.elbowL = 0.25 * u; p.elbowR = -0.25 * u;
+      p.hipL = 0.45 * u; p.hipR = -0.35 * u; p.kneeL = 0.55 * u;
+      p.drop = 0.05 * u;
       break;
     }
-    default:
-      p.shoulderL = 0.12 + Math.sin(phase * 0.5 + offset) * 0.03;
-      p.shoulderR = -0.12 - Math.sin(phase * 0.5 + offset + 1) * 0.03;
+    default: {
+      // Idle: weight shifts slowly from foot to foot, and the arms hang with a little sway.
+      const shift = Math.sin(t * 0.45 + offset);
+      p.hipL = 0.04 + shift * 0.03;
+      p.hipR = -0.04 + shift * 0.03;
+      p.kneeL = 0.03 + mrClampPose(shift) * 0.05;
+      p.kneeR = 0.03 + mrClampPose(-shift) * 0.05;
+      p.shoulderL += Math.sin(t * 0.5 + offset) * 0.05;
+      p.shoulderR -= Math.sin(t * 0.5 + offset + 0.6) * 0.05;
+      p.headTurn = Math.sin(t * 0.32 + offset) * 0.07;
+      p.bob += Math.abs(shift) * 0.002;
+    }
   }
 
-  // Speaking overrides the mouth whatever the body is doing — an actor can talk while
-  // walking, and the mouth is what sells it. A number is a measured loudness from the
-  // narration (true lip-sync); `true` means "speaking, but we cannot hear it", which
-  // falls back to a timed flap.
+  // Speaking overrides the mouth whatever the body is doing. A number is measured
+  // loudness from the narration; `true` means "speaking, but we cannot hear it".
   if (typeof speaking === 'number') p.mouthOpen = Math.max(0, Math.min(1, speaking));
-  else if (speaking) p.mouthOpen = 0.35 + Math.abs(Math.sin(phase * 5.5 + offset)) * 0.65;
-  else if (action === 'talk') p.mouthOpen = 0.3 + Math.abs(Math.sin(phase * 4.5 + offset)) * 0.5;
+  else if (speaking) p.mouthOpen = 0.35 + Math.abs(Math.sin(t * 2 * Math.PI * 5.5 + offset)) * 0.65;
+  else if (action === 'talk') p.mouthOpen = 0.3 + Math.abs(Math.sin(t * 2 * Math.PI * 4.5 + offset)) * 0.5;
   return p;
+}
+
+// Blend two poses. Used to cross-fade between actions so a character eases from standing
+// to kneeling instead of snapping between them on a keyframe.
+function blendPoses(a, b, u) {
+  const out = {};
+  for (const key of Object.keys(a)) {
+    const from = a[key], to = b[key] != null ? b[key] : a[key];
+    out[key] = typeof from === 'number' ? from + (to - from) * u : to;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- drawing
@@ -372,10 +493,19 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
     const c = (key) => (only ? ink : colours[key]);
     const w = (base) => base + pad * 2;
 
+    // Limbs carry their own outline. The silhouette pass only draws the OUTSIDE edge, so a
+    // leg swinging past the other leg, or an arm crossing the chest, has no line where it
+    // needs one most and dissolves into whatever it overlaps.
+    const edge = only ? 0 : outline * 1.5;
     for (const side of [-1, 1]) {
       const hip = side < 0 ? pose.hipL : pose.hipR;
       const knee = side < 0 ? pose.kneeL : pose.kneeR;
-      const kneeJoint = mrLimb(ctx, side * hipHalf * 0.55, hipY, hip, legLength * 0.52, w(limbWidth), c('bottom'));
+      const hipX = side * hipHalf * 0.55;
+      if (edge) {
+        const j = mrLimb(ctx, hipX, hipY, hip, legLength * 0.52, limbWidth + edge, ink);
+        mrLimb(ctx, j.x, j.y, hip - knee, legLength * 0.48, limbWidth * 0.9 + edge, ink);
+      }
+      const kneeJoint = mrLimb(ctx, hipX, hipY, hip, legLength * 0.52, w(limbWidth), c('bottom'));
       const foot = mrLimb(ctx, kneeJoint.x, kneeJoint.y, hip - knee, legLength * 0.48, w(limbWidth * 0.9), c('bottom'));
       mrShoe(ctx, foot.x, foot.y + limbWidth * 0.1, hip - knee, limbWidth + pad, actor.facing, c('shoe'));
     }
@@ -399,10 +529,24 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
       const shoulder = side < 0 ? pose.shoulderL : pose.shoulderR;
       const elbow = side < 0 ? pose.elbowL : pose.elbowR;
       const splay = side * 0.17;
-      // A sleeve the same colour as the garment behind it disappears; nudge it darker.
-      const sleeve = only ? ink : (costume === 'modern' ? colours.top : mrShade(colours.top, -0.16));
-      const elbowJoint = mrLimb(ctx, side * shoulderHalf * 0.95, armY, shoulder + splay, armLength * 0.52, w(limbWidth * 0.85), sleeve);
-      const hand = mrLimb(ctx, elbowJoint.x, elbowJoint.y, shoulder + splay + elbow, armLength * 0.48, w(limbWidth * 0.78), sleeve);
+      // A sleeve the same colour as the garment behind it disappears; nudge it darker. The
+      // outline does the real separating, but the shade keeps a raised arm from reading as
+      // part of the chest.
+      const sleeve = only ? ink : mrShade(colours.top, -0.1);
+      const shoulderX = side * shoulderHalf * 0.95;
+      const upper = shoulder + splay, fore = shoulder + splay + elbow;
+      if (edge) {
+        const j = mrLimb(ctx, shoulderX, armY, upper, armLength * 0.52, limbWidth * 0.85 + edge, ink);
+        mrLimb(ctx, j.x, j.y, fore, armLength * 0.48, limbWidth * 0.78 + edge, ink);
+      }
+      const elbowJoint = mrLimb(ctx, shoulderX, armY, upper, armLength * 0.52, w(limbWidth * 0.85), sleeve);
+      const hand = mrLimb(ctx, elbowJoint.x, elbowJoint.y, fore, armLength * 0.48, w(limbWidth * 0.78), sleeve);
+      if (edge) {
+        ctx.fillStyle = ink;
+        ctx.beginPath();
+        ctx.arc(hand.x, hand.y, limbWidth * 0.5 + edge * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.fillStyle = c('skin');
       ctx.beginPath();
       ctx.arc(hand.x, hand.y, limbWidth * 0.5 + pad, 0, Math.PI * 2);

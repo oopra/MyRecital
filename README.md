@@ -155,10 +155,18 @@ text to a finished comic-styled animation without placing a single character by 
 Open the **Animate** tab, press **+ Character**, and drag them around the preview.
 
 - **A character is a rig, not a picture.** Five body types, six skin tones, five hair
-  styles, four colours you pick — and eight actions (idle, talk, walk, point, wave, think,
-  kneel, fall) and six expressions that are all drawn from joint angles rather than stored
-  as frames. Everyone breathes and blinks whatever else they are doing, because stillness
-  reads as dead.
+  styles, four colours you pick — and nine actions (idle, talk, walk, point, wave, think,
+  sit, kneel, fall) and six expressions that are all drawn from joint angles rather than
+  stored as frames. Everyone breathes and blinks whatever else they are doing, because
+  stillness reads as dead.
+- **The motion is timed, not just posed.** The walk takes its phase from the distance
+  actually covered, so a slow crossing takes slow steps and a stopped character stops
+  stepping instead of jogging on the spot. Gestures start from rest and arrive with a
+  little overshoot. Switching action cross-fades over about a third of a second, so nobody
+  snaps from standing to kneeling between two frames.
+- **Every limb carries its own outline.** The ink pass draws the outside of the figure, so
+  an arm folded across the chest or a leg swinging past the other leg would otherwise
+  dissolve into whatever it overlaps. Arms and legs are drawn with their own line on top.
 - **Keyframes are moments.** Drag a character somewhere and that lands a key at the
   playhead; everything between two keys is worked out for you. Position and size ease
   between keys because that is motion; action, expression and facing hold and then switch,
