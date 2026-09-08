@@ -171,10 +171,21 @@ function searchCommons(query, opts) {
 
 // Words that are proper nouns in the middle of a sentence, which for narrative prose is
 // almost exactly "the people and places in this beat" — the thing worth illustrating.
+// Words that begin sentences all the time and are never anybody's name. Without this
+// list, the only safe rule is "ignore the first word of every sentence" — and that loses
+// the main character of any story written as "Aruna looked up. Aruna said...", which is
+// most stories.
+const MR_SENTENCE_OPENERS = new Set(('the a an and but or so then now when while after before if as at in on by for ' +
+  'from with he she it they we i you his her their its our my that this these those there here one two no not all ' +
+  'some every each both many most later meanwhile suddenly finally once again still yet even only just up down out ' +
+  'over under into above below far near long soon next first last high low deep dark light cold warm old young ' +
+  'good great small big new nobody nothing everyone someone what who where why how because though although since ' +
+  'until unless whether perhaps maybe of to').split(' '));
+
 function mrProperNouns(text) {
-  // Only a capital in the MIDDLE of a sentence is evidence of a proper noun; the first
-  // word of a sentence is capitalised whatever it is. Ranked by how often the passage
-  // leans on the name, so "Arjuna" beats a one-off "Dwarka".
+  // A capital in the MIDDLE of a sentence is strong evidence of a proper noun. A capital
+  // at the START is weak evidence — worth counting, but only when the word is not one of
+  // the ordinary words sentences begin with.
   const evidence = new Map();
   for (const sentence of String(text).split(/(?<=[.!?])\s+/)) {
     const trimmed = sentence.trim();
@@ -182,13 +193,16 @@ function mrProperNouns(text) {
     const opener = (trimmed.match(/^[A-Z][a-zA-Z'À-ɏ]{2,}/) || [])[0];
     words.forEach((word, i) => {
       const isOpener = i === 0 && word === opener;
+      const weak = isOpener && MR_SENTENCE_OPENERS.has(word.toLowerCase());
       const seen = evidence.get(word) || 0;
-      evidence.set(word, isOpener ? seen : seen + 1);
+      // Mid-sentence capitals score 2, sentence openers 1, ordinary opening words 0 —
+      // so a real name outranks a "Then" even if "Then" appears more often.
+      evidence.set(word, seen + (weak ? 0 : (isOpener ? 1 : 2)));
     });
   }
   return [...evidence.entries()]
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
+    .filter(([, score]) => score > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([word]) => word);
 }
 

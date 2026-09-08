@@ -989,6 +989,20 @@ function wirePanels() {
   $('cancelDrawBtn').addEventListener('click', () => { if (mrDrawing) mrDrawing.abort(); });
 }
 
+// Read the story and stage the whole reel — the step that makes this a tool which creates
+// animation, rather than one that only lets you animate by hand.
+function autoDirect() {
+  let summary = null;
+  commit('cast it and animate it', (p) => { summary = directProject(p); });
+  if (!summary) return;
+  $('directResult').textContent = summary.staged
+    ? `Cast ${summary.cast.join(', ')} · staged ${summary.staged} scene${summary.staged === 1 ? '' : 's'}` +
+      `${summary.spoken ? ` · ${summary.spoken} with dialogue` : ''}` +
+      `${summary.propped ? ` · scenery in ${summary.propped}` : ''}.`
+    : 'No names found in the story, so there is nobody to cast. Add characters by hand on the Animate tab.';
+  showTab('animate');
+}
+
 // ---------------------------------------------------------------- animating
 
 let mrSelectedActorId = null;
@@ -1247,6 +1261,7 @@ function wireAnimate() {
   fillSelect($('actorHeadwear'), MR_HEADWEAR);
 
   $('addActorBtn').addEventListener('click', addActor);
+  $('directAnimateBtn').addEventListener('click', autoDirect);
   $('copyActorsBtn').addEventListener('click', () => {
     const i = selectedIndex();
     if (i < 0 || i >= ed.project.scenes.length - 1) return;
@@ -1730,6 +1745,7 @@ function wireEditor() {
   wireAnimate();
 
   $('buildBtn').addEventListener('click', buildFromText);
+  $('directBtn').addEventListener('click', autoDirect);
   $('sampleBtn').addEventListener('click', () => {
     $('storyText').value = MR_SAMPLE;
     buildFromText();

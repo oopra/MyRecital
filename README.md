@@ -16,6 +16,7 @@ css/styles.css    — all styling
 js/actors.js      — the puppets: rig, poses, walk/talk/point cycles, faces
 js/props.js       — the scenery: 14 procedural props, drawn in the same flat ink style
 js/anim.js        — the timeline: keyframes, interpolation, the stage, hit testing
+js/direct.js      — auto-direction: casting, blocking, actions, dialogue, scenery
 js/story.js       — text → storyboard: sentence splitting, beats, mood, pacing
 js/images.js      — found artwork: Wikimedia Commons search, licence filter, image cache
 js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
@@ -116,6 +117,38 @@ scene · `s` split · `delete` remove scene · `ctrl/cmd+Z` undo.
 - **Project** — plain JSON, so a reel can be reopened, diffed or handed to someone else.
 - **Upload kit** — a title, a description built from the story, and tags pulled from its
   own most-used words, each with a copy button.
+
+## Text to animation, in two clicks
+
+Paste a story, press **Build the storyboard**, then press **Cast it and animate it**. The
+second button reads the prose and stages the whole reel:
+
+- **Casting.** Named characters, and — because plenty of stories never name anybody — the
+  unnamed ones the text refers to by role ("a traveller", "the potter", "the old king").
+  A character's whole appearance is derived from their *name*, so Aruna looks like Aruna in
+  every scene with nothing stored anywhere. Consistency across shots is free for drawn
+  characters; it is the hardest problem in the image-generation version of this idea.
+- **Actions from verbs.** Walked, ran, came → the walk cycle; said, asked, replied → talk;
+  pointed, knelt, fell, waved, wondered → the matching pose. The verb is read from the
+  clause about *that* character, then from their sentence, and no further — scanning the
+  whole beat borrows verbs from other people's sentences.
+- **Dialogue.** Who speaks is worked out through pronouns ("Aruna looked up. *You have
+  walked a long way*, she said." → Aruna), through subject position when two names share a
+  sentence, and *not* at all when the sentence says somebody said nothing. Dialogue beats
+  switch to speech balloons.
+- **Blocking.** One character centre, two facing each other, more spread across the stage.
+  Whoever arrives ("came", "entered", "approached") walks in from off the frame. Screen
+  direction is stable: once someone has a side of the stage they keep it, because
+  characters teleporting between beats reads as a continuity error.
+- **Scenery.** Nouns put props on the stage — a well, a fire, a tree, a house, a cart —
+  placed at sensible depths.
+- **Continuity.** People stay on stage between lines. A story does not re-introduce both
+  speakers in every sentence, and dropping the listener makes a two-hander look like two
+  monologues.
+
+It is a director, not an author: every decision is an ordinary edit afterwards, and the
+whole pass is one undo. Follow it with **Make it a comic** and you have gone from pasted
+text to a finished comic-styled animation without placing a single character by hand.
 
 ## Animating
 
@@ -339,6 +372,10 @@ music re-writes itself. It is mixed into the recording, not just played locally.
 - **Character drift is real.** A textual cast description gets you the same costume and
   broad look, not the same face. Reference-image conditioning (supported by Gemini and
   OpenAI, not by the Replicate path) would tighten this and is not wired up yet.
+- **The director reads grammar, not meaning.** It matches verbs and names; it does not
+  understand your story. Expect it to miss an implied action, cast a place as a person, or
+  stage a scene flatly — it gets you a populated, blocked reel in one click, and the
+  editing tools are there for the rest.
 - **Picture search is a hint engine too.** It reads proper nouns, not meaning, so an
   abstract beat ("I will not fight, he said") has nothing to search on and falls back to
   the reel's style hint, then to reusing a picture already in the reel. Expect to swap a

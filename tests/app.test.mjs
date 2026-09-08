@@ -1570,6 +1570,144 @@ test('the comic page border frames the picture instead of covering it', async ()
     `the middle must still be the picture, got ${JSON.stringify(r.middle)}`);
 });
 
+// ------------------------------------------------------------- auto-direction
+
+const POTTER = 'The Potter and the Traveller\n\n' +
+  'A traveller came down the road at noon, walking slowly past the well.\n\n' +
+  'Aruna looked up from her wheel. You have walked a long way, she said.\n\n' +
+  'The traveller sat down beside the fire and said nothing at all.\n\n' +
+  'Aruna pointed at the empty pot. Then you can carry water, she said.';
+
+test('casting finds named characters even when they start every sentence', async () => {
+  const cast = await ev((text) => castFromStory(buildStoryboard(text), 5), POTTER);
+  // "Aruna looked up..." — the main character opens her sentences, which the strict
+  // mid-sentence-capital rule threw away entirely.
+  assert.ok(cast.includes('Aruna'), `cast was ${cast.join(', ')}`);
+  // ...and the other character has no name at all, only a role.
+  assert.ok(cast.includes('Traveller'), `cast was ${cast.join(', ')}`);
+});
+
+test('a name always looks the same, and two names look different', async () => {
+  const r = await ev(() => {
+    const a1 = appearanceFor('Aruna');
+    const a2 = appearanceFor('Aruna');
+    const b = appearanceFor('Traveller');
+    return { same: JSON.stringify(a1) === JSON.stringify(a2), differ: JSON.stringify(a1) !== JSON.stringify(b) };
+  });
+  // Consistency is free for drawn characters — this is the thing image generation cannot do.
+  assert.equal(r.same, true);
+  assert.equal(r.differ, true);
+});
+
+test('actions come from the verb about that character, not from elsewhere in the beat', async () => {
+  const r = await ev(() => ({
+    walked: actionFor('A traveller came down the road at noon.', 'traveller'),
+    // "looked up" is not walking; the beat's other sentence contains "walked".
+    looked: actionFor('Aruna looked up from her wheel. You have walked a long way, she said.', 'Aruna'),
+    sat: actionFor('The traveller sat down beside the fire.', 'traveller'),
+    pointed: actionFor('Aruna pointed at the empty pot.', 'Aruna'),
+    nothing: actionFor('The rain fell on the roof.', 'Aruna')
+  }));
+  assert.equal(r.walked, 'walk');
+  assert.equal(r.looked, 'idle', 'a verb from another sentence must not be borrowed');
+  assert.equal(r.sat, 'kneel');
+  assert.equal(r.pointed, 'point');
+  assert.equal(r.nothing, 'fall', 'an unattributable verb still falls back to the beat');
+});
+
+test('speech is attributed through pronouns, and silence is not speech', async () => {
+  const r = await ev(() => ({
+    pronoun: speakerFor('Aruna looked up from her wheel. You have walked a long way, she said.', ['Aruna', 'Traveller']),
+    silent: speakerFor('The traveller sat down beside the fire and said nothing at all.', ['Aruna', 'Traveller']),
+    named: speakerFor('Krishna said: you have come far.', ['Krishna', 'Arjuna']),
+    both: speakerFor('Arjuna turned to Krishna and asked why.', ['Krishna', 'Arjuna']),
+    none: speakerFor('The dust rose behind them on the road.', ['Aruna', 'Traveller'])
+  }));
+  assert.equal(r.pronoun, 'Aruna', '"she said" belongs to the last person named');
+  assert.equal(r.silent, null, '"said nothing at all" is the opposite of speaking');
+  assert.equal(r.named, 'Krishna');
+  assert.equal(r.both, 'Arjuna', 'the name before the verb is the speaker');
+  assert.equal(r.none, null);
+});
+
+test('directing stages the whole reel: cast, actions, dialogue and scenery', async () => {
+  const r = await ev((text) => {
+    const p = buildStoryboard(text);
+    const summary = directProject(p);
+    const beats = p.scenes.filter((s) => s.kind !== 'title');
+    return {
+      summary,
+      staged: beats.every((s) => s.stage && s.stage.actors.length),
+      actions: beats.map((s) => s.stage.actors.map((a) => stateAt(a, 0.5).action)),
+      speakers: beats.filter((s) => s.stage.actors.some((a) => a.speaker)).length,
+      props: beats.reduce((n, s) => n + s.stage.props.length, 0)
+    };
+  }, POTTER);
+  assert.ok(r.summary.cast.length >= 2);
+  assert.equal(r.staged, true, 'every beat has somebody on stage');
+  assert.ok(r.actions.some((list) => list.includes('walk')), 'the arrival walks');
+  assert.ok(r.actions.some((list) => list.includes('kneel')), 'sitting down reads as kneeling');
+  assert.equal(r.speakers, 2, 'two beats have an identified speaker');
+  assert.ok(r.props >= 3, `scenery placed in ${r.props} slots`);
+});
+
+test('people stay on their side of the stage, and stay on stage between lines', async () => {
+  const r = await ev((text) => {
+    const p = buildStoryboard(text);
+    directProject(p);
+    const beats = p.scenes.filter((s) => s.kind !== 'title' && s.stage.actors.length > 1);
+    const sides = {};
+    for (const scene of beats) {
+      for (const actor of scene.stage.actors) {
+        const x = stateAt(actor, scene.duration).x;
+        (sides[actor.name] = sides[actor.name] || []).push(x < 0.5 ? 'left' : 'right');
+      }
+    }
+    return {
+      sides,
+      pairs: beats.length,
+      // A beat naming only one person still keeps the other on stage.
+      carried: p.scenes.filter((s) => s.kind !== 'title').every((s) => s.stage.actors.length >= 1)
+    };
+  }, POTTER);
+  assert.ok(r.pairs >= 2, 'there are multi-character beats to check');
+  for (const [name, seen] of Object.entries(r.sides)) {
+    assert.equal(new Set(seen).size, 1, `${name} kept swapping sides: ${seen.join(', ')}`);
+  }
+  assert.equal(r.carried, true);
+});
+
+test('an arrival walks in from off the frame', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('A traveller came down the road at noon, walking slowly past the well.',
+      { titleCard: false });
+    directProject(p);
+    const actor = p.scenes[0].stage.actors[0];
+    return { start: stateAt(actor, 0).x, end: stateAt(actor, p.scenes[0].duration).x, keys: actor.keys.length };
+  });
+  assert.ok(r.start < 0 || r.start > 1, `starts off frame at ${r.start}`);
+  assert.ok(r.end > 0.1 && r.end < 0.9, `arrives on stage at ${r.end}`);
+  assert.equal(r.keys, 2);
+});
+
+test('the direct button stages the reel and one undo puts it back', async () => {
+  await ev((text) => { document.getElementById('storyText').value = text; }, POTTER);
+  await page.click('#buildBtn');
+  const before = await ev(() => ed.project.scenes.filter((s) => s.stage && s.stage.actors.length).length);
+  await page.click('#directBtn');
+  const after = await ev(() => ({
+    staged: ed.project.scenes.filter((s) => s.stage && s.stage.actors.length).length,
+    message: document.getElementById('directResult').textContent
+  }));
+  assert.equal(before, 0, 'building alone leaves the stage empty');
+  assert.ok(after.staged >= 4, `directing staged ${after.staged} scenes`);
+  assert.match(after.message, /Cast .*Aruna/);
+  await page.click('#undoBtn');
+  assert.equal(await ev(() => ed.project.scenes.filter((s) => s.stage && s.stage.actors.length).length), 0,
+    'one undo clears the whole pass');
+  assert.deepEqual(page.__errors, []);
+});
+
 test('the reel reloads from local storage on the next visit', async () => {
   await ev(() => {
     document.getElementById('storyText').value = 'Persisted Reel\n\nOne line of story that should come back.';

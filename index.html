@@ -57,6 +57,10 @@
       <button id="buildBtn" class="btn primary wide">Build the storyboard</button>
       <button id="sampleBtn" class="btn ghost">Load a sample</button>
     </div>
+    <div class="field-row">
+      <button id="directBtn" class="btn wide">Cast it and animate it</button>
+    </div>
+    <p id="directResult" class="hint"></p>
     <p class="hint">Building replaces the current scenes. Your per-scene edits live in the storyboard, so
       re-build when you change the words — not when you change the look.</p>
 
@@ -105,6 +109,12 @@
     <div class="tab-panel is-active" data-panel="animate">
       <p class="hint">Drag a character on the preview to move them. Set a keyframe at the playhead and
         they walk there by themselves; everything between two keys is worked out for you.</p>
+      <div class="field-row">
+        <button id="directAnimateBtn" class="btn primary wide">Cast it and animate it</button>
+      </div>
+      <p class="hint">Reads the story: who is in each beat, what they do, who speaks, what scenery
+        the words imply — then stages and blocks the whole reel. Everything it decides is an
+        ordinary edit afterwards, and it is one undo.</p>
       <div class="field-row">
         <button id="addActorBtn" class="btn primary">+ Character</button>
         <select id="propKind" aria-label="Prop to add"></select>
@@ -425,6 +435,7 @@
 <script src="js/actors.js"></script>
 <script src="js/props.js"></script>
 <script src="js/anim.js"></script>
+<script src="js/direct.js"></script>
 <script src="js/story.js"></script>
 <script src="js/images.js"></script>
 <script src="js/generate.js"></script>
