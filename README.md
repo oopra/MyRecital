@@ -27,6 +27,7 @@ js/editor.js      — the editing tools: timeline, inspector, undo, autosave
 js/app.js         — boot
 tests/            — the test suite, run against a real browser
 scripts/serve.mjs — `npm run serve`, a static server for local development
+scripts/demo-reel.mjs  — `npm run demo`, builds and records the demonstration reel
 functions/api/image.js — optional: image-model proxy for providers that block browsers
 functions/api/voice.js — optional: text-to-speech proxy, same pattern
 ```
@@ -40,9 +41,15 @@ in dependency order). No bundler, no framework, no `node_modules` at runtime.
 ## Running it
 
 ```sh
-npm install     # only needed for the tests and the linter
+npm install     # only needed for the tests, the linter and the demo
 npm run serve   # then open http://localhost:8080
+npm run demo    # build and record the demonstration reel (58s, real time)
 ```
+
+`npm run demo` is also the most complete worked example of the animation API — cast,
+keyframed actions and expressions, an implied walk, props at three depths, a keyframed
+cart and lip-sync from a measured envelope, in about 150 lines. Pass `9:16` as a second
+argument for the vertical cut.
 
 Opening `index.html` directly from disk mostly works, but some browsers block
 `localStorage` on `file://`, which is where your project autosaves — so prefer the server.

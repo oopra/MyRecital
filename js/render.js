@@ -580,8 +580,11 @@ function captionBox(w, h, position, style) {
   // A subtitle is furniture: low, narrow, out of the way of faces. A kinetic caption is
   // the performance itself and gets the middle of the frame.
   if (style === 'subtitle') {
-    const marginX = w * 0.07;
-    return { x: marginX, y: h * 0.74, w: w - marginX * 2, h: h * 0.16 };
+    // Cap the line length: on a wide frame a full-width subtitle is an unreadable ribbon.
+    const boxW = Math.min(w * 0.86, h * 1.15);
+    // Low enough to sit over feet rather than faces or torsos — where a subtitle belongs,
+    // and the difference between "subtitled" and "text written across the actors".
+    return { x: (w - boxW) / 2, y: h * 0.8, w: boxW, h: h * 0.145 };
   }
   const marginX = w * 0.09;
   const boxW = w - marginX * 2;
@@ -593,6 +596,14 @@ function captionBox(w, h, position, style) {
   return { x: marginX, y: top, w: boxW, h: boxH };
 }
 
+// Type size has to come from the whole frame, not its height. Sizing captions off `h`
+// alone means a 16:9 export gets text half the size of the same reel in 9:16 — the number
+// is the same fraction of a much shorter dimension. The mean of the two sides keeps text
+// the same physical size in every aspect, and is calibrated so 9:16 is unchanged.
+function captionBase(w, h) {
+  return (w + h) / 2;
+}
+
 function drawCaption(ctx, project, scene, localT, w, h) {
   if (scene.captionStyle === 'none' || !scene.text.trim()) return;
   const font = fontOf(project);
@@ -601,9 +612,10 @@ function drawCaption(ctx, project, scene, localT, w, h) {
   const isSubtitle = scene.captionStyle === 'subtitle';
   const box = captionBox(w, h, scene.captionPosition, scene.captionStyle);
   const isTitle = scene.captionStyle === 'title';
+  const base = captionBase(w, h);
   const fit = fitCaption(ctx, scene.text, font, box, {
-    maxSize: isTitle ? h * 0.11 : isSubtitle ? h * 0.032 : h * 0.062,
-    minSize: isSubtitle ? h * 0.02 : h * 0.028,
+    maxSize: isTitle ? base * 0.141 : isSubtitle ? base * 0.041 : base * 0.079,
+    minSize: isSubtitle ? base * 0.026 : base * 0.036,
     maxLines: isTitle ? 3 : isSubtitle ? 3 : 5
   });
   const lineHeight = fit.size * 1.18;
@@ -827,9 +839,10 @@ function drawOverlays(ctx, project, t, total, w, h, sceneIndex) {
     ctx.fillStyle = colors[3];
     ctx.fillRect(0, h - barH, w * mrClamp01(t / total), barH);
   }
+  const base = captionBase(w, h);
   if (project.style.sceneNumbers) {
     ctx.save();
-    ctx.font = `600 ${Math.round(h * 0.018)}px ${MR_FONTS.mono.stack}`;
+    ctx.font = `600 ${Math.round(base * 0.023)}px ${MR_FONTS.mono.stack}`;
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.textAlign = 'right';
     ctx.fillText(`${sceneIndex + 1}/${project.scenes.length}`, w - w * 0.05, h * 0.06);
@@ -837,7 +850,7 @@ function drawOverlays(ctx, project, t, total, w, h, sceneIndex) {
   }
   if (project.style.watermark) {
     ctx.save();
-    ctx.font = `700 ${Math.round(h * 0.02)}px ${fontOf(project).stack}`;
+    ctx.font = `700 ${Math.round(base * 0.026)}px ${fontOf(project).stack}`;
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.textAlign = 'left';
     ctx.shadowColor = 'rgba(0,0,0,0.6)';

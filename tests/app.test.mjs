@@ -1029,6 +1029,24 @@ test('picture-first mode drops the words to subtitles and calms the camera', asy
   assert.deepEqual(r.words, ['kinetic'], 'and it flips back');
 });
 
+test('captions are the same physical size in portrait and landscape', async () => {
+  const r = await ev(() => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const font = MR_FONTS.display;
+    const text = 'The armies stood facing one another in the grey light.';
+    const size = (w, h) => {
+      const base = captionBase(w, h);
+      const box = captionBox(w, h, 'bottom', 'subtitle');
+      return fitCaption(ctx, text, font, box, { maxSize: base * 0.041, minSize: base * 0.026, maxLines: 3 }).size;
+    };
+    return { portrait: size(1080, 1920), landscape: size(1920, 1080), square: size(1080, 1080) };
+  });
+  // Sizing off height alone made 16:9 text half the size of the same reel in 9:16.
+  assert.ok(Math.abs(r.portrait - r.landscape) <= 2, `portrait ${r.portrait}px vs landscape ${r.landscape}px`);
+  assert.ok(r.square > 30 && r.square < r.portrait + 4);
+});
+
 test('a subtitle sits low, stays small, and does not colour words', async () => {
   const r = await ev(() => {
     const canvas = document.createElement('canvas');
