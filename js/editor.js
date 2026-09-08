@@ -351,6 +351,8 @@ function syncStyleControls() {
   $('styleMotionScale').value = String(style.motionScale);
   $('motionScaleValue').textContent = Number(style.motionScale).toFixed(2);
   $('styleWatermark').value = style.watermark || '';
+  $('styleLook').value = style.look || 'natural';
+  $('stylePanel').value = style.panel ? '1' : '';
   $('styleProgress').checked = !!style.progressBar;
   $('styleNumbers').checked = !!style.sceneNumbers;
   $('audioEnabled').checked = !!audio.enabled;
@@ -1136,6 +1138,9 @@ function syncAnimatePanel() {
   $('actorHairStyle').value = chosen.hairStyle;
   $('actorScale').value = String(state.scale);
   $('actorScaleValue').textContent = Number(state.scale).toFixed(2);
+  $('actorCostume').value = chosen.costume || 'modern';
+  $('actorHeadwear').value = chosen.headwear || 'none';
+  $('actorHeadwearColour').value = chosen.headwearColour || '#e8e2d8';
   $('actorSkin').value = chosen.skin;
   $('actorHair').value = chosen.hair;
   $('actorTop').value = chosen.top;
@@ -1238,6 +1243,8 @@ function wireAnimate() {
   const bodies = Object.keys(MR_BODIES);
   fillSelect($('actorBody'), bodies, bodies.map((b) => MR_BODIES[b].name));
   fillSelect($('actorHairStyle'), MR_HAIR_STYLES);
+  fillSelect($('actorCostume'), MR_COSTUMES);
+  fillSelect($('actorHeadwear'), MR_HEADWEAR);
 
   $('addActorBtn').addEventListener('click', addActor);
   $('copyActorsBtn').addEventListener('click', () => {
@@ -1265,7 +1272,8 @@ function wireAnimate() {
   }
   // Body, hair and colours are the character themselves — they apply to the whole reel.
   for (const [id, prop] of [['actorBody', 'body'], ['actorHairStyle', 'hairStyle'], ['actorSkin', 'skin'],
-    ['actorHair', 'hair'], ['actorTop', 'top'], ['actorBottom', 'bottom']]) {
+    ['actorHair', 'hair'], ['actorTop', 'top'], ['actorBottom', 'bottom'],
+    ['actorCostume', 'costume'], ['actorHeadwear', 'headwear'], ['actorHeadwearColour', 'headwearColour']]) {
     $(id).addEventListener('change', () => {
       if (ed.suppress) return;
       setActorProperty('restyle character', { [prop]: $(id).value }, true);
@@ -1484,6 +1492,37 @@ function setPresentation(mode) {
       }
     }
     p.style.motionScale = mode === 'people' ? 0.6 : 1;
+  });
+}
+
+// The whole "make it look like a comic" question, answered as one action: the heavy-ink
+// cast style, a palette with a real sky in it, flat village scenery, speech balloons and a
+// page border. Every one of them is an ordinary setting afterwards — and because it is a
+// single commit, one undo puts the reel back exactly as it was.
+function applyComicPreset() {
+  commit('make it a comic', (p) => {
+    p.style = Object.assign({}, p.style, {
+      look: 'comic',
+      palette: 'comicday',
+      font: 'rounded',
+      panel: true,
+      grain: 0.1,
+      vignette: 0.15,
+      motionScale: Math.min(p.style.motionScale, 0.7)
+    });
+    p.scenes.forEach((scene, i) => {
+      if (scene.kind === 'title') return;
+      // Alternate the two flat backgrounds so consecutive scenes still differ.
+      scene.background = i % 2 ? 'flatland' : 'village';
+      if (scene.captionStyle !== 'none' && scene.captionStyle !== 'title') {
+        // A balloon needs someone to speak it; scenes with an empty stage keep subtitles.
+        scene.captionStyle = (scene.stage && scene.stage.actors && scene.stage.actors.length)
+          ? 'balloon' : 'subtitle';
+      }
+      for (const actor of (scene.stage && scene.stage.actors) || []) {
+        if (!actor.costume || actor.costume === 'modern') actor.costume = 'kurta';
+      }
+    });
   });
 }
 
@@ -1784,6 +1823,17 @@ function wireEditor() {
     if (ed.suppress) return;
     commit('toggle scene numbers', (p) => { p.style.sceneNumbers = $('styleNumbers').checked; });
   });
+  const lookKeys = Object.keys(MR_LOOKS);
+  fillSelect($('styleLook'), lookKeys, lookKeys.map((k) => MR_LOOKS[k].name));
+  $('styleLook').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set cast style', (p) => { p.style.look = $('styleLook').value; });
+  });
+  $('stylePanel').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('toggle page border', (p) => { p.style.panel = !!$('stylePanel').value; });
+  });
+  $('comicPresetBtn').addEventListener('click', applyComicPreset);
   $('applyLookAllBtn').addEventListener('click', () => {
     const scene = selectedScene();
     if (!scene) return;

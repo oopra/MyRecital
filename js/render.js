@@ -24,6 +24,8 @@ const MR_PALETTES = {
   paper:    { name: 'Paper',     colors: ['#f4efe6', '#ded3c0', '#8a7a63', '#c2452d', '#2b2118'] },
   noir:     { name: 'Noir',      colors: ['#0a0a0b', '#1e1e22', '#4a4a52', '#e0483f', '#e8e8ee'] },
   candy:    { name: 'Candy',     colors: ['#1b1035', '#3b1f7a', '#7a4bff', '#57e6ff', '#ffd166'] },
+  comicday: { name: 'Comic day', colors: ['#1d3b2a', '#3f7a4a', '#5aa9e6', '#e8b04b', '#f6d76b'] },
+  comicdusk: { name: 'Comic dusk', colors: ['#2a1b2e', '#7a4a5a', '#e08a5a', '#ffd08a', '#ffeec2'] },
   tide:     { name: 'Tide',      colors: ['#03151c', '#0a3a4a', '#12879e', '#7ff0e0', '#ffc46b'] }
 };
 
@@ -35,10 +37,10 @@ const MR_FONTS = {
   mono:    { name: 'Mono',     stack: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', weight: '700', spacing: 0.02 }
 };
 
-const MR_BACKGROUNDS = ['gradient', 'starfield', 'aurora', 'rain', 'embers', 'waves', 'city', 'forest', 'orbit', 'mist', 'grid', 'confetti', 'corridor'];
+const MR_BACKGROUNDS = ['flatland', 'village', 'gradient', 'starfield', 'aurora', 'rain', 'embers', 'waves', 'city', 'forest', 'orbit', 'mist', 'grid', 'confetti', 'corridor'];
 const MR_MOTIONS = ['none', 'zoom', 'pull', 'pan', 'drift', 'bob', 'push', 'shake'];
 const MR_TRANSITIONS = ['cut', 'fade', 'dissolve', 'slide', 'wipe', 'flash'];
-const MR_CAPTION_STYLES = ['subtitle', 'kinetic', 'karaoke', 'block', 'dialogue', 'title', 'none'];
+const MR_CAPTION_STYLES = ['balloon', 'subtitle', 'kinetic', 'karaoke', 'block', 'dialogue', 'title', 'none'];
 const MR_TRANSITION_SECONDS = 0.42;
 
 function paletteOf(project) {
@@ -472,7 +474,63 @@ function bgCorridor(ctx, w, h, colors, scene, t) {
   }
 }
 
+// Flat, painted-looking scenery: a sky band, rolling ground and a horizon. Indian comic
+// backgrounds are colour fields, not the atmospheric gradients the reel started with, and
+// a flat background is also what lets ink-outlined characters read against it.
+function bgFlatland(ctx, w, h, colors, scene, t) {
+  const horizon = h * 0.66;
+  ctx.fillStyle = mrMix(colors[2], '#ffffff', 0.45);
+  ctx.fillRect(0, 0, w, horizon);
+  ctx.fillStyle = mrMix(colors[4], '#ffffff', 0.2);
+  ctx.beginPath();
+  ctx.arc(w * 0.78, horizon * 0.4, h * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+  // Two bands of hills, each a flat colour with a scalloped top edge.
+  const rand = mrRandom(scene.seed + 61);
+  for (let band = 0; band < 2; band++) {
+    const baseY = horizon - h * (0.04 - band * 0.03);
+    ctx.fillStyle = mrMix(colors[1], colors[3], band === 0 ? 0.25 : 0.45);
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    ctx.lineTo(0, baseY);
+    for (let x = 0; x <= w; x += w / 6) {
+      const lift = h * (0.03 + rand() * 0.05);
+      ctx.quadraticCurveTo(x + w / 12, baseY - lift, x + w / 6, baseY);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = mrMix(colors[1], '#8a9a3a', 0.4);
+  ctx.fillRect(0, horizon, w, h - horizon);
+  void t;
+}
+
+function bgVillage(ctx, w, h, colors, scene, t) {
+  bgFlatland(ctx, w, h, colors, scene, t);
+  const rand = mrRandom(scene.seed + 12);
+  const horizon = h * 0.66;
+  // A row of flat huts along the horizon: two shapes and a door, repeated.
+  for (let i = 0; i < 5; i++) {
+    const x = w * (0.06 + i * 0.2) + rand() * w * 0.04;
+    const hw = w * (0.07 + rand() * 0.04);
+    const hh = h * (0.06 + rand() * 0.04);
+    ctx.fillStyle = mrMix(colors[1], '#c8a877', 0.55);
+    ctx.fillRect(x - hw / 2, horizon - hh, hw, hh);
+    ctx.fillStyle = mrMix(colors[0], '#7a5a34', 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x - hw * 0.72, horizon - hh);
+    ctx.lineTo(x, horizon - hh - h * 0.045);
+    ctx.lineTo(x + hw * 0.72, horizon - hh);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(40,26,18,0.75)';
+    ctx.fillRect(x - hw * 0.12, horizon - hh * 0.55, hw * 0.24, hh * 0.55);
+  }
+}
+
 const MR_BG_FUNCTIONS = {
+  flatland: bgFlatland, village: bgVillage,
   gradient: bgGradient, starfield: bgStarfield, aurora: bgAurora, rain: bgRain, embers: bgEmbers,
   waves: bgWaves, city: bgCity, forest: bgForest, orbit: bgOrbit, mist: bgMist, grid: bgGrid,
   confetti: bgConfetti, corridor: bgCorridor
@@ -558,6 +616,19 @@ function fitCaption(ctx, text, font, box, opts) {
 
 // ctx.roundRect only landed in browsers recently; this keeps the caption plate working
 // on anything that can run MediaRecorder at all.
+// Adds a rounded rectangle to the CURRENT path. Kept separate from mrRoundRect because
+// that one starts a new path, which silently erases anything already in it — which is how
+// the comic panel border first came out as a sheet of paper over the whole picture.
+function mrRoundRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
 function mrRoundRect(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -604,8 +675,90 @@ function captionBase(w, h) {
   return (w + h) / 2;
 }
 
+// Which actor the balloon points at: the marked speaker, else whoever is talking, else
+// the first person on stage. A balloon with no owner is just a box.
+function balloonSpeaker(scene, localT) {
+  const actors = (scene.stage && scene.stage.actors) || [];
+  if (!actors.length) return null;
+  const marked = actors.find((a) => a.speaker);
+  if (marked) return { actor: marked, state: stateAt(marked, localT) };
+  const talking = actors.find((a) => stateAt(a, localT).action === 'talk');
+  const chosen = talking || actors[0];
+  return { actor: chosen, state: stateAt(chosen, localT) };
+}
+
+// A comic speech balloon: rounded, inked, with a tail to the speaker's mouth. Drawn above
+// the speaker's head where there is room, and flipped to the other side of the frame when
+// there is not.
+function drawBalloon(ctx, project, scene, localT, w, h) {
+  const speaker = balloonSpeaker(scene, localT);
+  const font = fontOf(project);
+  const base = captionBase(w, h);
+  const headTop = speaker ? (speaker.state.y - speaker.state.scale) * h : h * 0.35;
+  const anchorX = speaker ? speaker.state.x * w : w / 2;
+
+  // The balloon has to fit in the gap ABOVE the speaker's head. Fit the text to that gap
+  // rather than to an arbitrary box, or a long line grows a balloon straight over the
+  // face it belongs to — which is the one thing a speech balloon must never do.
+  const gapAbove = Math.max(h * 0.12, headTop - h * 0.1);
+  const maxWidth = Math.min(w * 0.62, h * 0.66);
+  const fit = fitCaption(ctx, scene.text, font, { w: maxWidth - base * 0.06, h: gapAbove }, {
+    maxSize: base * 0.046, minSize: base * 0.024, maxLines: 5
+  });
+  const padding = fit.size * 0.7;
+  const lineHeight = fit.size * 1.2;
+  const textWidth = Math.max(...fit.lines.map((line) => {
+    ctx.font = fit.spec;
+    return ctx.measureText(line.join(' ')).width;
+  }));
+  const boxW = textWidth + padding * 2;
+  const boxH = fit.lines.length * lineHeight + padding * 1.6;
+  // Sit above the head, never off the top of the frame, never off either side.
+  const boxY = Math.max(h * 0.03, headTop - boxH - h * 0.055);
+  const boxX = Math.min(Math.max(anchorX - boxW / 2, w * 0.03), Math.max(w * 0.03, w - boxW - w * 0.03));
+
+  const appear = mrClamp01(localT / 0.25) * mrClamp01((scene.duration - localT) / 0.25);
+  ctx.save();
+  ctx.globalAlpha = appear;
+  ctx.fillStyle = '#fdf7ea';
+  ctx.strokeStyle = '#2a1c12';
+  ctx.lineWidth = Math.max(2, base * 0.005);
+  ctx.lineJoin = 'round';
+  mrRoundRect(ctx, boxX, boxY, boxW, boxH, fit.size * 0.7);
+  ctx.fill();
+  ctx.stroke();
+
+  // The tail runs from the balloon's bottom edge DOWN to just above the head — always
+  // below the balloon, whatever the layout did.
+  const tailX = Math.min(Math.max(anchorX, boxX + boxW * 0.2), boxX + boxW * 0.8);
+  const tipY = Math.max(boxY + boxH + h * 0.015, headTop - h * 0.012);
+  ctx.beginPath();
+  ctx.moveTo(tailX - boxW * 0.09, boxY + boxH - 2);
+  ctx.lineTo(tailX + boxW * 0.06, boxY + boxH - 2);
+  ctx.lineTo(anchorX + (tailX > anchorX ? boxW * 0.02 : -boxW * 0.02), tipY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Cover the seam the tail's outline leaves across the balloon's edge.
+  ctx.beginPath();
+  ctx.moveTo(tailX - boxW * 0.085, boxY + boxH - ctx.lineWidth * 0.7);
+  ctx.lineTo(tailX + boxW * 0.055, boxY + boxH - ctx.lineWidth * 0.7);
+  ctx.strokeStyle = '#fdf7ea';
+  ctx.stroke();
+
+  ctx.fillStyle = '#20160f';
+  ctx.font = fit.spec;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  fit.lines.forEach((line, i) => {
+    ctx.fillText(line.join(' '), boxX + boxW / 2, boxY + padding * 0.9 + fit.size * 0.85 + i * lineHeight);
+  });
+  ctx.restore();
+}
+
 function drawCaption(ctx, project, scene, localT, w, h) {
   if (scene.captionStyle === 'none' || !scene.text.trim()) return;
+  if (scene.captionStyle === 'balloon') { drawBalloon(ctx, project, scene, localT, w, h); return; }
   const font = fontOf(project);
   const colors = paletteOf(project);
   const accent = accentOf(project, scene);
@@ -802,7 +955,7 @@ function drawSceneBackground(ctx, project, scene, localT, w, h) {
     fn(ctx, w, h, colors, scene, localT + scene.seed * 0.01);
   }
   // The cast stands on the background and moves with the camera.
-  if (typeof drawStage === 'function') drawStage(ctx, scene, localT, w, h);
+  if (typeof drawStage === 'function') drawStage(ctx, scene, localT, w, h, project.style.look);
   ctx.restore();
 }
 
@@ -826,6 +979,25 @@ function drawGrain(ctx, w, h, strength, t) {
   ctx.translate(Math.floor((t * 977) % 128) - 128, Math.floor((t * 1361) % 128) - 128);
   ctx.fillStyle = pattern;
   ctx.fillRect(0, 0, w + 256, h + 256);
+  ctx.restore();
+}
+
+// A comic-page border: paper margin, then an inked panel edge. Costs a little of the
+// picture and buys a lot of "this is a comic".
+function drawPanelFrame(ctx, w, h) {
+  const margin = Math.min(w, h) * 0.035;
+  const ink = Math.max(3, Math.min(w, h) * 0.008);
+  ctx.save();
+  ctx.fillStyle = '#f3e9d6';
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  // The hole. Same path, so evenodd leaves only the margin painted.
+  mrRoundRectPath(ctx, margin, margin, w - margin * 2, h - margin * 2, margin * 0.5);
+  ctx.fill('evenodd');
+  ctx.strokeStyle = '#2a1c12';
+  ctx.lineWidth = ink;
+  mrRoundRect(ctx, margin + ink / 2, margin + ink / 2, w - (margin + ink / 2) * 2, h - (margin + ink / 2) * 2, margin * 0.45);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -937,6 +1109,7 @@ function renderFrame(ctx, project, t, opts) {
   const tail = total - t;
   if (tail < 0.35) { ctx.fillStyle = `rgba(0,0,0,${1 - mrEaseOut(Math.max(0, tail) / 0.35)})`; ctx.fillRect(0, 0, w, h); }
 
+  if (project.style.panel) drawPanelFrame(ctx, w, h);
   drawOverlays(ctx, project, t, total, w, h, index);
   ctx.restore();
 }

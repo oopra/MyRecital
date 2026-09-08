@@ -1431,6 +1431,145 @@ test('adding a prop through the UI puts it on the stage', async () => {
   assert.deepEqual(page.__errors, []);
 });
 
+// ---------------------------------------------------------------- the comic look
+
+test('the cast style changes the drawing, not just the colours', async () => {
+  const r = await ev(() => {
+    const shot = (look) => {
+      const c = document.createElement('canvas');
+      c.width = 160; c.height = 240;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 160, 240);
+      const actor = makeActor('A', { top: '#3a5cc8' });
+      drawActor(x, actor, poseFor('idle', 0.6, 3, false), 80, 232, 220, look);
+      return c.toDataURL();
+    };
+    // Count dark pixels as a proxy for how much ink is on the page.
+    const inkiness = (look) => {
+      const c = document.createElement('canvas');
+      c.width = 160; c.height = 240;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 160, 240);
+      drawActor(x, makeActor('A', { top: '#3a5cc8' }), poseFor('idle', 0.6, 3, false), 80, 232, 220, look);
+      const data = x.getImageData(0, 0, 160, 240).data;
+      let dark = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] < 90 && data[i + 1] < 90) dark++;
+      return dark;
+    };
+    return {
+      differ: shot('natural') !== shot('comic'),
+      naturalInk: inkiness('natural'),
+      comicInk: inkiness('comic'),
+      looks: Object.keys(MR_LOOKS).length
+    };
+  });
+  assert.equal(r.differ, true);
+  assert.ok(r.comicInk > r.naturalInk * 1.15,
+    `comic style lays down more ink (${r.comicInk} vs ${r.naturalInk})`);
+  assert.ok(r.looks >= 3);
+});
+
+test('every costume and headwear draws something different', async () => {
+  const r = await ev(() => {
+    const shot = (extra) => {
+      const c = document.createElement('canvas');
+      c.width = 160; c.height = 240;
+      const x = c.getContext('2d');
+      drawActor(x, makeActor('A', Object.assign({ top: '#e8e2d8', bottom: '#8a6a3f' }, extra)),
+        poseFor('idle', 0.6, 3, false), 80, 232, 220, 'comic');
+      return c.toDataURL();
+    };
+    const costumes = new Set(MR_COSTUMES.map((costume) => shot({ costume })));
+    const hats = new Set(MR_HEADWEAR.map((headwear) => shot({ headwear })));
+    return { costumes: costumes.size, costumeCount: MR_COSTUMES.length, hats: hats.size, hatCount: MR_HEADWEAR.length };
+  });
+  assert.equal(r.costumes, r.costumeCount, 'no two costumes render identically');
+  assert.equal(r.hats, r.hatCount, 'no two headwear options render identically');
+});
+
+test('a speech balloon sits above the speaker and never covers their face', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('A very long line of dialogue that would happily grow a balloon ' +
+      'right across the face of whoever is unlucky enough to be saying it out loud.', { titleCard: false });
+    const scene = p.scenes[0];
+    scene.captionStyle = 'balloon';
+    scene.background = 'flatland';
+    scene.motion = 'none';
+    scene.duration = 4;
+    const speaker = makeActor('Speaker', { speaker: true, top: '#00ff00', bottom: '#00ff00',
+      start: { x: 0.5, y: 0.88, scale: 0.55, action: 'talk' } });
+    scene.stage = makeStage({ actors: [speaker] });
+
+    const c = document.createElement('canvas');
+    c.width = 384; c.height = 216;                       // a wide frame, the harder case
+    const x = c.getContext('2d');
+    x.scale(384 / 1920, 216 / 1080);
+    p.style.aspect = '16:9';
+    renderFrame(x, p, 2, { width: 1920, height: 1080 });
+    const data = x.getImageData(0, 0, 384, 216).data;
+    // The head sits just below the top of the actor: y = (0.88 - 0.55) of the frame.
+    const headRow = Math.round(216 * 0.36);
+    let faceCovered = 0;
+    for (let px = Math.round(384 * 0.42); px < Math.round(384 * 0.58); px++) {
+      const i = (headRow * 384 + px) * 4;
+      // Balloon cream is bright and unsaturated; skin and ink are not.
+      if (data[i] > 240 && data[i + 1] > 235 && data[i + 2] > 215) faceCovered++;
+    }
+    return { faceCovered };
+  });
+  assert.equal(r.faceCovered, 0, 'no balloon paint across the speaker\'s head');
+});
+
+test('the comic preset changes the whole reel in one undoable step', async () => {
+  const r = await ev(() => {
+    const before = { look: ed.project.style.look, palette: ed.project.style.palette };
+    // Give a scene a cast so the preset can put a balloon on it.
+    ed.project.scenes[1].stage = makeStage({ actors: [makeActor('Someone')] });
+    applyComicPreset();
+    const after = {
+      look: ed.project.style.look,
+      palette: ed.project.style.palette,
+      panel: ed.project.style.panel,
+      backgrounds: [...new Set(ed.project.scenes.filter((s) => s.kind !== 'title').map((s) => s.background))],
+      balloons: ed.project.scenes.filter((s) => s.captionStyle === 'balloon').length,
+      costumes: [...new Set(ed.project.scenes[1].stage.actors.map((a) => a.costume))]
+    };
+    undo();
+    return { before, after, restored: { look: ed.project.style.look, palette: ed.project.style.palette } };
+  });
+  assert.equal(r.after.look, 'comic');
+  assert.equal(r.after.palette, 'comicday');
+  assert.equal(r.after.panel, true);
+  assert.ok(r.after.backgrounds.every((b) => b === 'flatland' || b === 'village'));
+  assert.equal(r.after.balloons, 1, 'only the scene with someone on stage gets a balloon');
+  assert.deepEqual(r.after.costumes, ['kurta']);
+  assert.deepEqual(r.restored, r.before, 'one undo puts the whole reel back');
+});
+
+test('the comic page border frames the picture instead of covering it', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('A framed panel.', { titleCard: false });
+    p.style.panel = true;
+    p.scenes[0].background = 'village';
+    p.scenes[0].captionStyle = 'none';
+    p.scenes[0].motion = 'none';
+    const c = document.createElement('canvas');
+    c.width = 200; c.height = 356;
+    const x = c.getContext('2d');
+    x.scale(200 / 1080, 356 / 1920);
+    renderFrame(x, p, 1, { width: 1080, height: 1920 });
+    const at = (fx, fy) => {
+      const d = x.getImageData(Math.round(200 * fx), Math.round(356 * fy), 1, 1).data;
+      return { r: d[0], g: d[1], b: d[2] };
+    };
+    return { corner: at(0.01, 0.01), middle: at(0.5, 0.35) };
+  });
+  // Paper at the very edge, picture in the middle — the bug this replaced filled the lot.
+  assert.ok(r.corner.r > 220 && r.corner.b > 190, `edge should be paper, got ${JSON.stringify(r.corner)}`);
+  assert.ok(!(r.middle.r > 230 && r.middle.g > 225 && r.middle.b > 200),
+    `the middle must still be the picture, got ${JSON.stringify(r.middle)}`);
+});
+
 test('the reel reloads from local storage on the next visit', async () => {
   await ev(() => {
     document.getElementById('storyText').value = 'Persisted Reel\n\nOne line of story that should come back.';

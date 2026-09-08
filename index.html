@@ -146,6 +146,8 @@
           </select></label>
           <label class="field"><span>Body</span><select id="actorBody"></select></label>
           <label class="field"><span>Hair</span><select id="actorHairStyle"></select></label>
+          <label class="field"><span>Wearing</span><select id="actorCostume"></select></label>
+          <label class="field"><span>On the head</span><select id="actorHeadwear"></select></label>
           <label class="field"><span>Size <b id="actorScaleValue"></b></span>
             <input id="actorScale" type="range" min="0.15" max="1.1" step="0.01"></label>
         </div>
@@ -154,6 +156,7 @@
           <label class="field"><span>Hair colour</span><input id="actorHair" type="color"></label>
           <label class="field"><span>Top</span><input id="actorTop" type="color"></label>
           <label class="field"><span>Legs</span><input id="actorBottom" type="color"></label>
+          <label class="field"><span>Headwear</span><input id="actorHeadwearColour" type="color"></label>
         </div>
         <label class="check"><input type="checkbox" id="actorSpeaker"> This one speaks the narration</label>
 
@@ -315,6 +318,19 @@
         <label class="check"><input type="checkbox" id="styleProgress"> Progress bar</label>
         <label class="check"><input type="checkbox" id="styleNumbers"> Scene numbers</label>
       </div>
+      <div class="field-grid">
+        <label class="field"><span>Cast drawing style</span><select id="styleLook"></select></label>
+        <label class="field"><span>Page</span><select id="stylePanel">
+          <option value="">No border</option>
+          <option value="1">Comic panel border</option>
+        </select></label>
+      </div>
+      <div class="field-row">
+        <button id="comicPresetBtn" class="btn primary wide">Make it a comic</button>
+      </div>
+      <p class="hint">Sets the heavy-ink cast style, a bright comic palette, flat village
+        backgrounds, speech balloons and a page border in one go. Everything it changes is a
+        normal setting you can then tune, and one undo puts it all back.</p>
       <div class="field-row">
         <button id="applyLookAllBtn" class="btn ghost">Apply this scene's camera to all</button>
       </div>

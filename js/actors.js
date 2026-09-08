@@ -20,9 +20,28 @@ const MR_BODIES = {
   child:   { name: 'Child',   head: 0.24, shoulders: 0.18, hips: 0.15, torso: 0.24, legs: 0.40 }
 };
 
+// A "look" is the drawing style of the whole cast: line weight and colour, how big the
+// head and eyes are relative to the body, whether faces carry a nose and blush. Indian
+// comic art (Tinkle, Amar Chitra Katha) is rounder, heavier-inked and warmer than the
+// neutral explainer-video look, and those are the numbers that carry the difference.
+const MR_LOOKS = {
+  natural: { name: 'Natural',  ink: '#15100e', inkWeight: 1,    head: 1,    eye: 1,    limb: 1,    brow: 1,    nose: false, blush: false },
+  comic:   { name: 'Comic',    ink: '#2a1c12', inkWeight: 1.75, head: 1.24, eye: 1.32, limb: 1.18, brow: 1.4,  nose: true,  blush: true },
+  storybook: { name: 'Storybook', ink: '#3a2a1c', inkWeight: 1.35, head: 1.34, eye: 1.45, limb: 1.1, brow: 1.2, nose: true, blush: true }
+};
+
+function lookOf(name) {
+  return MR_LOOKS[name] || MR_LOOKS.natural;
+}
+
 const MR_SKINS = ['#f2c9a0', '#e0aa7c', '#c98b5e', '#a8663c', '#7d4b2c', '#5a3520'];
 const MR_HAIRS = ['#1c1512', '#3b2a1d', '#6b4a2b', '#a8722e', '#8d8d95', '#e8e2d8', '#2b3a55'];
 const MR_HAIR_STYLES = ['short', 'long', 'bun', 'bald', 'braid'];
+
+// What the character is wearing. 'modern' is a top and trousers; the rest are the shapes
+// Indian comics actually draw, and they change the silhouette more than any colour does.
+const MR_COSTUMES = ['modern', 'kurta', 'dhoti', 'saree', 'robe'];
+const MR_HEADWEAR = ['none', 'turban', 'cap', 'crown'];
 
 // Expressions are three numbers: brow angle, eye openness, mouth shape. Everything a flat
 // character needs to read as calm, worried, angry, glad or shocked at phone size.
@@ -215,6 +234,88 @@ function mrHairBack(ctx, x, y, r, style, colour) {
   }
 }
 
+// Costume shapes. Each is drawn in the actor's local space, where the hips are at hipY
+// and the feet at 0 — the same coordinates the limbs use.
+function mrCostume(ctx, kind, colour, trim, hipY, shoulderY, hipHalf, shoulderHalf, height, pad) {
+  const fill = (build) => { ctx.beginPath(); build(); ctx.fillStyle = colour; ctx.fill(); };
+  if (kind === 'kurta') {
+    // A tunic to mid-thigh, flaring slightly.
+    fill(() => {
+      ctx.moveTo(-shoulderHalf - pad, shoulderY);
+      ctx.lineTo(-hipHalf * 1.5 - pad, hipY + height * 0.15);
+      ctx.lineTo(hipHalf * 1.5 + pad, hipY + height * 0.15);
+      ctx.lineTo(shoulderHalf + pad, shoulderY);
+      ctx.closePath();
+    });
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = height * 0.008;
+    ctx.beginPath();
+    ctx.moveTo(0, shoulderY + height * 0.02);
+    ctx.lineTo(0, hipY + height * 0.13);
+    ctx.stroke();
+  } else if (kind === 'dhoti') {
+    // A wrapped lower garment to the shins.
+    fill(() => {
+      ctx.moveTo(-hipHalf - pad, hipY - height * 0.02);
+      ctx.lineTo(-hipHalf * 1.7 - pad, hipY + height * 0.26);
+      ctx.lineTo(hipHalf * 1.7 + pad, hipY + height * 0.26);
+      ctx.lineTo(hipHalf + pad, hipY - height * 0.02);
+      ctx.closePath();
+    });
+  } else if (kind === 'saree' || kind === 'robe') {
+    // A full-length drape to the ankles.
+    fill(() => {
+      ctx.moveTo(-hipHalf - pad, hipY - height * 0.03);
+      ctx.lineTo(-hipHalf * 2.1 - pad, -height * 0.01);
+      ctx.lineTo(hipHalf * 2.1 + pad, -height * 0.01);
+      ctx.lineTo(hipHalf + pad, hipY - height * 0.03);
+      ctx.closePath();
+    });
+    if (kind === 'saree') {
+      // The pallu, over one shoulder and across the body.
+      fill(() => {
+        ctx.moveTo(-shoulderHalf - pad, shoulderY);
+        ctx.lineTo(-shoulderHalf * 0.2, shoulderY + height * 0.02);
+        ctx.lineTo(hipHalf * 1.2 + pad, hipY + height * 0.04);
+        ctx.lineTo(hipHalf * 0.1, hipY + height * 0.06);
+        ctx.closePath();
+      });
+    }
+  }
+}
+
+function mrHeadwear(ctx, kind, r, colour, trim) {
+  if (kind === 'turban') {
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.6, r * 1.14, r * 0.66, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = r * 0.1;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.55, r * 1.06, r * 0.5, 0.1, Math.PI * 0.1, Math.PI * 0.9);
+    ctx.stroke();
+  } else if (kind === 'cap') {
+    // High on the skull: any lower and it reads as a blindfold across the brows.
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.72, r * 0.86, r * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === 'crown') {
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.85, -r * 0.55);
+    ctx.lineTo(-r * 0.85, -r * 1.05);
+    ctx.lineTo(-r * 0.42, -r * 0.75);
+    ctx.lineTo(0, -r * 1.25);
+    ctx.lineTo(r * 0.42, -r * 0.75);
+    ctx.lineTo(r * 0.85, -r * 1.05);
+    ctx.lineTo(r * 0.85, -r * 0.55);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
 function mrShoe(ctx, x, y, angle, size, facing, colour) {
   ctx.save();
   ctx.translate(x, y);
@@ -234,7 +335,8 @@ function mrShoe(ctx, x, y, angle, size, facing, colour) {
 // colours on top. That outline is not decoration — flat colours disappear against a
 // background of similar value (dark trousers on a dark field read as no legs at all), and
 // the ink is what keeps a character readable over anything.
-function drawActor(ctx, actor, pose, x, groundY, height) {
+function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
+  const look = lookOf(actor.look || lookName);
   const body = MR_BODIES[actor.body] || MR_BODIES.average;
   const expression = MR_EXPRESSIONS[actor.expression] || MR_EXPRESSIONS.calm;
   const colours = {
@@ -242,15 +344,20 @@ function drawActor(ctx, actor, pose, x, groundY, height) {
     top: actor.top || '#3a5cc8',
     bottom: actor.bottom || '#2b2f45',
     hair: actor.hair || MR_HAIRS[0],
-    shoe: '#22252e'
+    shoe: '#22252e',
+    trim: actor.trim || '#e8c46a'
   };
-  const ink = actor.ink || '#15100e';
+  const ink = actor.ink || look.ink;
+  const costume = actor.costume || 'modern';
+  const headwear = actor.headwear || 'none';
 
-  const headR = height * body.head / 2;
+  // The look scales the head, the eyes, the limbs and the line — the four numbers that
+  // separate a neutral figure from a comic one.
+  const headR = height * body.head * look.head / 2;
   const legLength = height * body.legs;
   const torsoLength = height * body.torso;
-  const limbWidth = height * 0.052;
-  const outline = Math.max(1.5, height * 0.013);
+  const limbWidth = height * 0.052 * look.limb;
+  const outline = Math.max(1.5, height * 0.013 * look.inkWeight);
 
   const hipY = -legLength;
   const shoulderY = hipY - torsoLength;
@@ -283,12 +390,19 @@ function drawActor(ctx, actor, pose, x, groundY, height) {
     ctx.closePath();
     ctx.fill();
 
+    if (costume !== 'modern') {
+      mrCostume(ctx, costume, c('top'), only ? ink : colours.trim,
+        hipY, shoulderY, hipHalf, shoulderHalf, height, pad);
+    }
+
     for (const side of [-1, 1]) {
       const shoulder = side < 0 ? pose.shoulderL : pose.shoulderR;
       const elbow = side < 0 ? pose.elbowL : pose.elbowR;
       const splay = side * 0.17;
-      const elbowJoint = mrLimb(ctx, side * shoulderHalf * 0.95, armY, shoulder + splay, armLength * 0.52, w(limbWidth * 0.85), c('top'));
-      const hand = mrLimb(ctx, elbowJoint.x, elbowJoint.y, shoulder + splay + elbow, armLength * 0.48, w(limbWidth * 0.78), c('top'));
+      // A sleeve the same colour as the garment behind it disappears; nudge it darker.
+      const sleeve = only ? ink : (costume === 'modern' ? colours.top : mrShade(colours.top, -0.16));
+      const elbowJoint = mrLimb(ctx, side * shoulderHalf * 0.95, armY, shoulder + splay, armLength * 0.52, w(limbWidth * 0.85), sleeve);
+      const hand = mrLimb(ctx, elbowJoint.x, elbowJoint.y, shoulder + splay + elbow, armLength * 0.48, w(limbWidth * 0.78), sleeve);
       ctx.fillStyle = c('skin');
       ctx.beginPath();
       ctx.arc(hand.x, hand.y, limbWidth * 0.5 + pad, 0, Math.PI * 2);
@@ -315,6 +429,10 @@ function drawActor(ctx, actor, pose, x, groundY, height) {
     ctx.ellipse(-headR * 0.86, headR * 0.14, headR * 0.13 + pad, headR * 0.19 + pad, 0, 0, Math.PI * 2);
     ctx.fill();
     mrHair(ctx, 0, 0, headR + pad * 0.6, actor.hairStyle || 'short', c('hair'));
+    if (headwear !== 'none') {
+      mrHeadwear(ctx, headwear, headR + pad * 0.6, only ? ink : (actor.headwearColour || '#e8e2d8'),
+        only ? ink : colours.trim);
+    }
     ctx.restore();
   };
 
@@ -335,25 +453,52 @@ function drawActor(ctx, actor, pose, x, groundY, height) {
   const open = Math.max(0.1, expression.eye * (1 - pose.blink));
   const eyeY = headR * 0.16;
   const eyeX = headR * 0.33;
+  const eyeR = headR * 0.19 * look.eye;
+  // Blush first, so the eyes and nose sit on top of it.
+  if (look.blush) {
+    ctx.fillStyle = 'rgba(214,108,92,0.34)';
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(side * headR * 0.56 + turn * 0.5, headR * 0.42, headR * 0.16, headR * 0.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   for (const side of [-1, 1]) {
     const ex = side * eyeX + turn;
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.ellipse(ex, eyeY, headR * 0.19, headR * 0.2 * open, 0, 0, Math.PI * 2);
+    ctx.ellipse(ex, eyeY, eyeR, eyeR * 1.05 * open, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (look.inkWeight > 1.2) {
+      // A comic eye is drawn, not just filled.
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = headR * 0.035;
+      ctx.stroke();
+    }
     ctx.fillStyle = '#221a16';
     ctx.beginPath();
-    ctx.arc(ex + turn * 0.35, eyeY + headR * 0.02, headR * 0.09 * Math.min(1, open + 0.25), 0, Math.PI * 2);
+    ctx.arc(ex + turn * 0.35, eyeY + headR * 0.02, eyeR * 0.47 * Math.min(1, open + 0.25), 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = colours.hair;
-    ctx.lineWidth = headR * 0.08;
+    ctx.lineWidth = headR * 0.08 * look.brow;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(ex - headR * 0.19, eyeY - headR * 0.3 + side * expression.brow * headR * 0.16);
-    ctx.lineTo(ex + headR * 0.19, eyeY - headR * 0.3 - side * expression.brow * headR * 0.16);
+    ctx.moveTo(ex - eyeR, eyeY - headR * 0.32 + side * expression.brow * headR * 0.16);
+    ctx.lineTo(ex + eyeR, eyeY - headR * 0.32 - side * expression.brow * headR * 0.16);
     ctx.stroke();
   }
-  mrMouth(ctx, turn * 0.6, headR * 0.56, headR, expression.mouth, pose.mouthOpen);
+  // A nose. Its absence is the single biggest reason the neutral face reads as a mask
+  // rather than a cartoon.
+  if (look.nose) {
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = headR * 0.055;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(turn * 0.7, headR * 0.2);
+    ctx.quadraticCurveTo(turn * 0.7 + headR * 0.11, headR * 0.36, turn * 0.7 - headR * 0.02, headR * 0.38);
+    ctx.stroke();
+  }
+  mrMouth(ctx, turn * 0.6, headR * (look.nose ? 0.62 : 0.56), headR, expression.mouth, pose.mouthOpen);
   ctx.restore();
   ctx.restore();
 }

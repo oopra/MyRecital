@@ -84,7 +84,8 @@ draws differently. Nothing is ever "re-rendered" until you record.
 
 | Per scene | Globally |
 | --- | --- |
-| Cast, poses, expressions, keyframes | — |
+| Cast, poses, expressions, keyframes | Cast drawing style (3), comic page border |
+| Costume (5), headwear (4), colours | — |
 | Caption text, duration | Palette (8), typeface (5) |
 | Background (13), camera move (8) | Aspect: 9:16, 1:1, 16:9 · 24/30/60 fps |
 | Transition in (6), caption style (5) | Grain, vignette, camera amount |
@@ -139,6 +140,30 @@ Open the **Animate** tab, press **+ Character**, and drag them around the previe
   next scene is a new performance.
 - Mark one character as the speaker and their mouth moves for exactly as long as that
   scene's narration lasts.
+
+### Making it look like a comic
+
+The Look tab has a **Make it a comic** button. It sets six things at once, and one undo
+puts them all back:
+
+| What changes | Why it matters |
+| --- | --- |
+| Cast style → **Comic** | Heavier, warmer ink; bigger heads and eyes; thicker brows; and a **nose** and blush on every face. The missing nose is the single biggest reason the default face reads as a mask rather than a cartoon. |
+| Palette → **Comic day** | A real blue sky and warm ground, instead of the moody gradients the reel starts with. |
+| Backgrounds → **flatland / village** | Flat painted colour fields with a horizon and a row of huts. Indian comic backgrounds are colour fields, not atmosphere — and a flat background is what lets an ink-outlined character read against it. |
+| Captions → **speech balloons** | Rounded, inked, with a tail to whoever is speaking, placed in the gap above their head so it can never cover the face. Scenes with an empty stage keep subtitles, since a balloon with no owner is just a box. |
+| Page → **comic panel border** | A paper margin and an inked panel edge. Costs a little of the picture, buys a lot of "this is a comic". |
+| Costumes → **kurta** | Anyone still in the default top-and-trousers gets dressed. |
+
+Then tune it by hand. Per character there is **kurta, dhoti, saree, robe** or modern
+dress, and **turban, cap or crown** — the silhouette changes far more than any colour
+does, and it is what makes a cast read as Indian comic rather than generic explainer
+video. Three cast styles ship: Natural, Comic and Storybook (rounder still, bigger eyes).
+
+What this is *not*: it is not a Tinkle pastiche and does not imitate any particular
+artist's hand. It is flat vector art with heavy ink, in the register those comics work in.
+Hand-lettered wobble, cross-hatching, ink-weight variation along a single line and real
+brush texture are all absent — that is the gap between this and a drawn page.
 
 ### Props and scenery
 

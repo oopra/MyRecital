@@ -220,7 +220,10 @@ function mrAudioStop() {
   if (mrAudio.music && mrAudio.ctx) {
     try {
       mrAudio.music.gain.cancelScheduledValues(mrAudio.ctx.currentTime);
-      mrAudio.music.gain.setValueAtTime(1, mrAudio.ctx.currentTime);
+      // cancelScheduledValues does not undo a ramp already under way, and a value
+      // scheduled at `currentTime` is not necessarily applied by the time anything reads
+      // it back. Assigning .value is immediate and leaves no ramp running.
+      mrAudio.music.gain.value = 1;
     } catch { /* context already closed */ }
   }
   for (const node of mrAudio.nodes) {

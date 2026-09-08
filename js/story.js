@@ -346,6 +346,8 @@ const MR_DEFAULT_STYLE = {
   watermark: '',
   motionScale: 1,
   seed: 1,
+  look: 'natural',      // how the cast is drawn: natural, comic or storybook
+  panel: false,         // a comic-page border around the frame
   imageHint: ''        // appended to every picture search, e.g. "Mahabharata painting"
 };
 

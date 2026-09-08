@@ -35,6 +35,11 @@ function makeActor(name, opts) {
     skin: o.skin || MR_SKINS[1],
     hair: o.hair || MR_HAIRS[0],
     hairStyle: o.hairStyle || 'short',
+    costume: o.costume || 'modern',
+    headwear: o.headwear || 'none',
+    headwearColour: o.headwearColour || '#e8e2d8',
+    trim: o.trim || '#e8c46a',
+    look: o.look || '',            // blank means "whatever the project is set to"
     top: o.top || '#3a5cc8',
     bottom: o.bottom || '#2b2f45',
     seed: o.seed != null ? o.seed : Math.floor(Math.random() * 1000),
@@ -151,7 +156,7 @@ function stageItems(scene, t) {
 
 // Draw every actor on a scene, back to front by size so a smaller (further) character
 // cannot cover a nearer one.
-function drawStage(ctx, scene, localT, w, h) {
+function drawStage(ctx, scene, localT, w, h, look) {
   const items = stageItems(scene, localT);
   if (!items.length) return false;
 
@@ -177,7 +182,7 @@ function drawStage(ctx, scene, localT, w, h) {
     ctx.ellipse(state.x * w, state.y * h, height * 0.14, height * 0.022, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-    drawActor(ctx, item, pose, state.x * w, state.y * h, height);
+    drawActor(ctx, item, pose, state.x * w, state.y * h, height, look);
     ctx.restore();
   }
   return true;
