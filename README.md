@@ -23,6 +23,7 @@ js/images.js      — found artwork: Wikimedia Commons search, licence filter, i
 js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
 js/voice.js       — narration: TTS adapters, audio storage, and the timing it dictates
 js/voices.js      — character voices: who says what, and what each of them sounds like
+js/speech.js      — the speech synthesiser: letters to sounds, sounds to sound
 js/render.js      — the picture: artwork or 13 procedural backgrounds, camera, captions
 js/audio.js       — the score: synthesised from the scene moods and an ensemble, no files
 js/sfx.js         — sound effects: footsteps read off the walk, weather, fire, hooves
@@ -449,10 +450,10 @@ narrator; *"said nothing at all"* is not speech.
 **Two ways to hear them**, sharing everything except the sound — the same lines, the same
 attribution, the same mouth shapes:
 
-- **Spoken** (on by default, no key, no cost). Synthesised here, per syllable, from the
-  same viseme sequence that drives the lips: pitched gibberish, the way a Saturday-morning
-  cartoon or a Nintendo game does it. Because the sound and the mouth come from one list of
-  syllables, the lip sync on this path is exact by construction.
+- **Spoken** (on by default, no key, no cost). A speech synthesiser, built here, that says
+  the actual words — see below. Set it to *Syllables* instead and you get the cartoon
+  version: pitched gibberish in the right rhythm, which never mispronounces anything
+  because it never pronounces anything.
 - **Narrated** (needs a TTS key). Each line is sent to the provider in that character's own
   voice, and the beat comes back as several recordings laid one after another. The mouth
   that moves is the one whose line is playing.
@@ -464,10 +465,37 @@ octaves above an old man and speaks a third faster — which is the same age you
 drawing. Five timbres (warm, bright, reedy, soft, gruff) and a pitch slider per character
 are in the Sound tab, with a ▶ to hear each one.
 
-A note on the synthesis: a vowel is a *boost* at its formant, not a narrow band around it.
-The first version used a bandpass, which threw away the fundamental — every character, however
-deep, came out as the same thin whistle. Peaking colours the vowel and leaves the pitch you
-can actually hear, which is the whole point.
+### Saying the words
+
+The words are synthesised from scratch, in two stages — the two stages every speech
+synthesiser has had since the 1970s:
+
+1. **Letters to sounds.** English spelling is a historical accident, so this is a rule
+   engine with context on both sides (*c* is /k/ except before *e*, *i* or *y*; *ow* is
+   different in *slowly* and in *howl*) plus a dictionary of the words no rule will ever
+   get right — *one*, *two*, *said*, *women*, *through*. Endings agree with the sound
+   before them, which is the giveaway when a synthesiser gets it wrong: *walked* ends in a
+   t, *feared* in a d, *wanted* grows a syllable; *cats* hisses where *dogs* buzzes.
+2. **Sounds to sound.** A vowel is three resonances — the shape of the mouth making it — so
+   speech here is a glottal buzz and a hiss pushed through three tracking filters, with
+   silence-then-burst for the stops and formants that *glide* between neighbours, because
+   those transitions are how a listener tells a /d/ from a /g/.
+
+**It sounds like a robot.** It is a robot: three formants and a pulse train in a browser
+tab. But it says the words, it costs nothing, it works offline, and — unlike the browser's
+own `speechSynthesis`, which cannot be captured — it is Web Audio all the way, so it goes
+into the recording instead of playing only for whoever is at the machine. For a studio
+voice, record narration with a TTS key; the two paths share everything else.
+
+Two numbers that had to be measured rather than guessed. The resonator Q is lower than a
+textbook suggests, because a deep voice has its harmonics far apart and a sharp resonator
+sitting between two of them passes nothing — the first version had a loud child and an
+inaudible old man. And the output level is compensated by pitch for the same reason, so a
+child and an old man saying the same line come out the same loudness.
+
+The lip sync gets better as a side effect: mouth shapes now come from the phonemes, which
+is where they always wanted to come from. /m/ closes the lips because it *is* closed lips,
+not because a spelling rule guessed it might be.
 
 Whose mouth moves on a *narrator's* line? Nobody's, when the beat has dialogue in it — the
 narrator is not in the picture. A beat that is nothing but description would then have every
@@ -520,10 +548,13 @@ press play — "7 crackles, 5 footsteps, 2 birds, 1 scene of wind."
   guessing game — but expect that first run to be where a shape problem shows up.
 - **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
   outlines — closer to an explainer-video cast than to Pixar.
-- **Spoken voices are not words.** They are pitched syllables in the right rhythm with the
-  right mouth shapes — a cartoon convention, not speech. A child can tell who is talking and
-  how they feel; nobody can tell what they said. The words are on screen, and real speech
-  needs the TTS path and a key.
+- **The synthesiser sounds like a 1980s speech chip.** It says the words and you can
+  follow them, especially with the captions on screen; it will not be mistaken for a person.
+  Unstressed vowels are not reduced, stress is not modelled at all, and an unusual proper
+  noun will be pronounced the way it is spelled. For a studio voice, use the TTS path.
+- **Its dictionary is short.** A few hundred irregular words, plus rules for the rest. A
+  word the rules get wrong stays wrong until it is added — there is no way to correct a
+  pronunciation in the interface yet.
 - **Who says what is read from grammar, not meaning.** Quotation marks and speech tags are
   reliable; a line of dialogue with neither goes to the narrator. Every line's speaker is an
   ordinary setting you can change.

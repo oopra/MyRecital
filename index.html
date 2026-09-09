@@ -405,10 +405,17 @@
 
       <h3 class="pane-subtitle">Character voices</h3>
       <label class="check"><input type="checkbox" id="voicesEnabled" checked> Let the characters speak their own lines</label>
-      <p class="hint">Synthesised here, per syllable, from the same shapes that drive the lips — pitched
-        gibberish, the way a Saturday-morning cartoon does it. No key, no cost, and a child, an old
-        sage and a king are three different people. Each name gets its own pitch and timbre from its
-        age; change either below. A scene with real narration recorded over it uses that instead.</p>
+      <div class="field-grid">
+        <label class="field"><span>How they speak</span><select id="voicesMode">
+          <option value="words">Words — a real synthesiser</option>
+          <option value="syllables">Syllables — cartoon gibberish</option>
+        </select></label>
+      </div>
+      <p class="hint">Words are built here from scratch: letters to sounds by rule and dictionary, then
+        sounds to sound through three formant filters — a speech synthesiser of the kind that shipped
+        in 1980s speech chips. It says the words, needs no key, works offline, and mixes into the
+        recording. It also sounds like a robot; for a studio voice, record narration above. Each name
+        gets its own pitch and timbre from its age — change either below.</p>
       <div id="voiceList" class="cast-list"></div>
 
       <h3 class="pane-subtitle">Score</h3>
@@ -479,6 +486,7 @@
 <script src="js/images.js"></script>
 <script src="js/generate.js"></script>
 <script src="js/voice.js"></script>
+  <script src="js/speech.js"></script>
   <script src="js/voices.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>

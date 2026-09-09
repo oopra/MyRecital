@@ -2497,6 +2497,125 @@ test('the sound tab reports what the reel will sound like, and one undo puts it 
 
 // ------------------------------------------------------------------ character voices
 
+// ------------------------------------------------------------------ spoken words
+
+test('letters become the sounds they are actually pronounced as', async () => {
+  const r = await ev(() => {
+    const words = ['walked', 'asked', 'wanted', 'cats', 'dogs', 'houses', 'city', 'cat',
+      'giant', 'gate', 'through', 'thought', 'night', 'nation', 'temple', 'well',
+      'traveller', 'happy', 'story', 'slowly', 'queen', 'children', 'said', 'one'];
+    const out = {};
+    for (const word of words) out[word] = phonemesForWord(word).join(' ');
+    return out;
+  });
+  // The endings that agree with the sound before them — the thing a naive rule gets wrong
+  // in every second word.
+  assert.equal(r.walked, 'W AO K T', 'walked ends in a t');
+  assert.equal(r.asked, 'AE S K T', 'so does asked');
+  assert.ok(r.wanted.endsWith('IH D'), `wanted grows a syllable (${r.wanted})`);
+  assert.ok(r.cats.endsWith('S') && r.dogs.endsWith('Z'), `cats hisses, dogs buzzes (${r.cats} / ${r.dogs})`);
+  // Soft and hard c and g, decided by what follows.
+  assert.ok(r.city.startsWith('S') && r.cat.startsWith('K'), 'c is soft before i and hard before a');
+  assert.ok(r.giant.startsWith('JH') && r.gate.startsWith('G'), 'and g the same way');
+  // The spellings no rule will ever get: these come from the dictionary.
+  assert.equal(r.through, 'TH R UW');
+  assert.equal(r.thought, 'TH AO T');
+  assert.equal(r.said, 'S EH D');
+  assert.equal(r.one, 'W AH N');
+  // A doubled letter is one sound.
+  assert.equal(r.well, 'W EH L', `well has one l (${r.well})`);
+  assert.ok(!/L L/.test(r.traveller), `and so does traveller (${r.traveller})`);
+  assert.ok(!/P P/.test(r.happy), `and happy (${r.happy})`);
+  assert.equal(r.temple, 'T EH M P AX L', 'a final -le is its own syllable');
+  assert.ok(r.nation.startsWith('N EY SH'), `-tion is a sh (${r.nation})`);
+  assert.equal(r.night, 'N AY T');
+  assert.equal(r.queen, 'K W IY N');
+});
+
+test('a spoken line is a plan of sounds, and the mouth comes off the same plan', async () => {
+  const r = await ev(() => {
+    const text = 'My name is Ashoka.';
+    const plan = speechPlan(text, { rate: 1 });
+    const shapes = [];
+    for (let t = 0; t < plan.seconds; t += 0.02) shapes.push(mouthFromPlan(plan, t).viseme);
+    const runs = [];
+    for (const shape of shapes) if (runs[runs.length - 1] !== shape) runs.push(shape);
+    return {
+      phonemes: plan.phonemes.join(' '),
+      seconds: plan.seconds,
+      steps: plan.steps.length,
+      runs,
+      after: mouthFromPlan(plan, plan.seconds + 1),
+      falls: plan.steps[0].pitch > plan.steps[plan.steps.length - 1].pitch,
+      question: speechPlan('Where are you?', { rate: 1 })
+    };
+  });
+  assert.ok(/M AY/.test(r.phonemes), `my is a diphthong (${r.phonemes})`);
+  assert.ok(r.seconds > 0.8 && r.seconds < 3.5, `a short line takes a short time (${r.seconds.toFixed(2)}s)`);
+  // The lips close on the m of "my" and on the m of "name" — because /m/ IS closed lips,
+  // not because a spelling rule guessed.
+  assert.ok(r.runs.filter((v) => v === 'MBP').length >= 2, `the m shuts the mouth (${r.runs.join(',')})`);
+  assert.ok(r.runs.includes('S'), 'and the s is a narrow one');
+  assert.deepEqual(r.after, { open: 0, viseme: 'rest' }, 'after the line the mouth is shut');
+  assert.equal(r.falls, true, 'a statement falls away at the end');
+  const q = r.question;
+  assert.ok(q.steps[q.steps.length - 1].pitch > q.steps[0].pitch, 'and a question rises');
+});
+
+test('the words are actually spoken on the recorded bus', async () => {
+  const r = await ev(async () => {
+    mrAudioEnsure();
+    const recorder = new MediaRecorder(mrAudioStream());
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.start();
+    const seconds = mrSpeakWords('You have walked a long way.', mrAudio.ctx.currentTime + 0.05,
+      { name: 'A', pitch: 52, timbre: 'warm', rate: 1 }, 1, 1);
+    await new Promise((done) => setTimeout(done, seconds * 1000 + 400));
+    await new Promise((done) => { recorder.onstop = done; recorder.stop(); });
+    mrAudioStop();
+    const buffer = await new AudioContext().decodeAudioData(await new Blob(chunks).arrayBuffer());
+    const data = buffer.getChannelData(0);
+    let peak = 0;
+    // Speech is not a drone: it starts and stops, several times, in every phrase.
+    const frame = Math.floor(buffer.sampleRate * 0.02);
+    const loud = [];
+    for (let start = 0; start + frame < data.length; start += frame) {
+      let sum = 0;
+      for (let i = start; i < start + frame; i++) { sum += data[i] * data[i]; peak = Math.max(peak, Math.abs(data[i])); }
+      loud.push(Math.sqrt(sum / frame) > 0.02);
+    }
+    let bursts = 0;
+    for (let i = 1; i < loud.length; i++) if (loud[i] && !loud[i - 1]) bursts++;
+    return { peak, seconds, bursts, frames: loud.length, spoken: loud.filter(Boolean).length };
+  });
+  assert.ok(r.seconds > 0.9, `the line has real length (${r.seconds.toFixed(2)}s)`);
+  assert.ok(r.peak > 0.08, `and it is audible (peak ${r.peak.toFixed(3)})`);
+  assert.ok(r.peak < 0.95, 'without clipping');
+  assert.ok(r.spoken > r.frames * 0.25, 'most of the line is sound, not silence');
+  assert.ok(r.bursts >= 3, `and it is a phrase of separate words, not one long drone (${r.bursts} bursts)`);
+});
+
+test('a reel can be spoken in words or in syllables, and says so', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Aruna walked to the river.', { titleCard: false });
+    directProject(p);
+    p.voices = { enabled: true, mode: 'words', cast: {} };
+    const words = speechScheduleFor(p, p.scenes[0]);
+    p.voices.mode = 'syllables';
+    const syllables = speechScheduleFor(p, p.scenes[0]);
+    return {
+      wordsMode: words[0].mode, syllableMode: syllables[0].mode,
+      wordSeconds: words[0].dur, syllableSeconds: syllables[0].dur,
+      defaultMode: voiceMode(buildStoryboard('x', { titleCard: false }))
+    };
+  });
+  assert.equal(r.defaultMode, 'words', 'words are the default — that is the point of them');
+  assert.equal(r.wordsMode, 'words');
+  assert.equal(r.syllableMode, 'syllables');
+  assert.ok(r.wordSeconds > 0.2 && r.syllableSeconds > 0.2, 'both modes take real time');
+});
+
 test('a beat is split into who says what, not read out in one voice', async () => {
   const r = await ev(() => {
     const names = ['Aruna', 'Ravi'];
@@ -2602,14 +2721,25 @@ test('two characters really do sound different on the recorded bus', async () =>
       mrAudioStop();
       const buffer = await new AudioContext().decodeAudioData(await new Blob(chunks).arrayBuffer());
       const data = buffer.getChannelData(0);
-      let peak = 0, crossings = 0;
-      for (let i = 1; i < data.length; i++) {
-        peak = Math.max(peak, Math.abs(data[i]));
-        if ((data[i - 1] < 0) !== (data[i] < 0)) crossings++;
+      let peak = 0;
+      for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+
+      // The pitch of the voice, by autocorrelation over the loudest tenth of a second.
+      // Anything less direct measures brightness and calls it pitch.
+      const window = Math.floor(buffer.sampleRate * 0.1);
+      let loudest = 0, energy = 0;
+      for (let start = 0; start + window < data.length; start += window) {
+        let sum = 0;
+        for (let i = start; i < start + window; i++) sum += data[i] * data[i];
+        if (sum > energy) { energy = sum; loudest = start; }
       }
-      // Zero crossings per second: a rough but honest measure of how bright and how high
-      // a voice is. Two voices that measure the same are two voices nobody can tell apart.
-      return { peak, zcr: crossings / buffer.duration };
+      let bestLag = 0, best = -Infinity;
+      for (let lag = Math.floor(buffer.sampleRate / 500); lag < buffer.sampleRate / 60; lag++) {
+        let sum = 0;
+        for (let i = 0; i < window - lag; i++) sum += data[loudest + i] * data[loudest + i + lag];
+        if (sum > best) { best = sum; bestLag = lag; }
+      }
+      return { peak, f0: bestLag ? buffer.sampleRate / bestLag : 0, seconds: buffer.duration };
     };
     const boy = await listen({ name: 'Boy', pitch: 68, timbre: 'bright', rate: 1.14 });
     const sage = await listen({ name: 'Sage', pitch: 45, timbre: 'gruff', rate: 0.86 });
@@ -2618,8 +2748,10 @@ test('two characters really do sound different on the recorded bus', async () =>
   assert.ok(r.boy.peak > 0.05, `the boy is audible (peak ${r.boy.peak.toFixed(3)})`);
   assert.ok(r.sage.peak > 0.05, `so is the sage (peak ${r.sage.peak.toFixed(3)})`);
   assert.ok(r.boy.peak < 0.9 && r.sage.peak < 0.9, 'without clipping the mix');
-  assert.ok(r.boy.zcr > r.sage.zcr * 1.15,
-    `and they do not sound the same (${Math.round(r.boy.zcr)} vs ${Math.round(r.sage.zcr)})`);
+  // A boy at MIDI 68 against a sage at 45 is nearly two octaves. Anything less than half
+  // that and the two are not telling anybody apart.
+  assert.ok(r.boy.f0 > r.sage.f0 * 1.6,
+    `and the boy really is pitched above the sage (${Math.round(r.boy.f0)}Hz vs ${Math.round(r.sage.f0)}Hz)`);
 });
 
 test('narration records one line per voice, each in that character’s voice', async () => {

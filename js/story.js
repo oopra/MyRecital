@@ -354,7 +354,7 @@ const MR_DEFAULT_STYLE = {
 
 // Characters speak their own lines by default. It costs nothing, needs no key, and a reel
 // where the child and the old man sound the same is a reel with one character in it.
-const MR_DEFAULT_VOICES = { enabled: true, cast: {} };
+const MR_DEFAULT_VOICES = { enabled: true, mode: 'words', cast: {} };
 
 const MR_DEFAULT_AUDIO = {
   enabled: true, mood: 'auto', volume: 0.5, accents: true,

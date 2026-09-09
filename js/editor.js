@@ -359,6 +359,7 @@ function syncStyleControls() {
   $('styleProgress').checked = !!style.progressBar;
   $('styleNumbers').checked = !!style.sceneNumbers;
   $('voicesEnabled').checked = voicesOn(ed.project);
+  $('voicesMode').value = voiceMode(ed.project);
   renderVoiceList();
   $('audioEnabled').checked = !!audio.enabled;
   $('audioEnsemble').value = audio.ensemble || 'auto';
@@ -1961,6 +1962,12 @@ function wireEditor() {
     if (ed.suppress) return;
     commit('toggle character voices', (p) => {
       p.voices = Object.assign({ enabled: true, cast: {} }, p.voices, { enabled: $('voicesEnabled').checked });
+    });
+  });
+  $('voicesMode').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set how characters speak', (p) => {
+      p.voices = Object.assign({ enabled: true, cast: {} }, p.voices, { mode: $('voicesMode').value });
     });
   });
   $('audioSfx').addEventListener('change', () => {

@@ -221,8 +221,16 @@ function speechWeight(text) {
   return visemeSequence(text).reduce((sum, piece) => sum + piece.weight, 0);
 }
 
-function speechSeconds(text, rate) {
+function speechSeconds(text, rate, mode) {
+  if (mode !== 'syllables' && typeof speechPlanSeconds === 'function') return speechPlanSeconds(text, rate);
   return speechWeight(text) / (MR_SPEECH_UNITS * (rate || 1));
+}
+
+// Words or syllables. Words is the point of the thing; syllables is the cartoon-gibberish
+// voice, kept because it is a legitimate style and because it never mispronounces anything.
+function voiceMode(project) {
+  const mode = project && project.voices && project.voices.mode;
+  return mode === 'syllables' ? 'syllables' : 'words';
 }
 
 // Lay the lines of one scene end to end inside it. If the beat is too short for what is
@@ -234,9 +242,10 @@ function speechScheduleFor(project, scene) {
   if (!lines.length) return [];
   const gap = 0.16;
   const room = Math.max(0.5, (scene.duration || 0) - 0.3);
+  const mode = voiceMode(project);
   const spans = lines.map((line) => {
     const profile = voiceProfileFor(project, line.who || MR_NARRATOR);
-    return { line, profile, seconds: speechSeconds(line.text, profile.rate) };
+    return { line, profile, seconds: speechSeconds(line.text, profile.rate, mode) };
   });
   const total = spans.reduce((sum, span) => sum + span.seconds, 0) + gap * (spans.length - 1);
   const squeeze = total > room ? room / total : 1;
@@ -245,7 +254,7 @@ function speechScheduleFor(project, scene) {
     const seconds = span.seconds * squeeze;
     const out = {
       at, dur: seconds, who: span.line.who || MR_NARRATOR, text: span.line.text,
-      rate: span.profile.rate / squeeze, profile: span.profile
+      rate: span.profile.rate / squeeze, profile: span.profile, mode
     };
     at += seconds + gap * squeeze;
     return out;
@@ -281,6 +290,11 @@ function spokenMouthFor(project, scene, actor, localT) {
     if (localT < span.at || localT > span.at + span.dur) continue;
     const mine = span.who === actor.name || (span.who === MR_NARRATOR && actor.speaker && !dialogue);
     if (!mine) return null;
+    // In words mode the mouth comes from the phonemes themselves, which is the shape the
+    // sound is actually being made with rather than a guess from the spelling.
+    if (span.mode !== 'syllables' && typeof speechPlan === 'function') {
+      return mouthFromPlan(speechPlan(span.text, { rate: span.rate }), localT - span.at);
+    }
     return spokenMouthAt(span.text, localT - span.at, { rate: span.rate, loop: false });
   }
   return null;
@@ -350,9 +364,13 @@ function mrSpeakPiece(viseme, at, duration, profile, timbre, pitchHz, out) {
 
 // One line, spoken. The pitch drifts down across a statement and up at a question, which
 // is the smallest amount of prosody that stops a voice sounding like a list.
-function mrSpeakLine(text, at, profile, rate, gainValue) {
+function mrSpeakLine(text, at, profile, rate, gainValue, mode) {
   const ctx = mrAudio.ctx;
   if (!ctx) return 0;
+  // Real words unless the reel has asked for the gibberish voice.
+  if (mode !== 'syllables' && typeof mrSpeakWords === 'function') {
+    return mrSpeakWords(text, at, profile, rate, gainValue);
+  }
   const timbre = MR_TIMBRES[profile.timbre] || MR_TIMBRES.warm;
   const sequence = visemeSequence(text);
   const question = /\?\s*$/.test(text);
@@ -395,7 +413,7 @@ function mrScheduleSpeech(project, origin, fromSeconds) {
     if (cue.at + cue.dur < from) continue;
     const at = origin + Math.max(0, cue.at - from);
     if (cue.at < from) continue;                 // a line already half-said is left alone
-    mrSpeakLine(cue.text, at, cue.profile, cue.rate, 1);
+    mrSpeakLine(cue.text, at, cue.profile, cue.rate, 1, cue.mode);
     spoken++;
     mrAudio.music.gain.setTargetAtTime(duck, Math.max(ctx.currentTime, at - 0.1), 0.05);
     mrAudio.music.gain.setTargetAtTime(1, at + cue.dur + 0.05, 0.2);
@@ -410,6 +428,6 @@ function mrTryVoice(project, name) {
   if (ctx.state === 'suspended') ctx.resume();
   const profile = voiceProfileFor(project, name);
   mrSpeakLine(name === MR_NARRATOR ? 'And so the long road turned towards home.' : `My name is ${name}. Listen, and I will tell you.`,
-    ctx.currentTime + 0.05, profile, profile.rate, 1);
+    ctx.currentTime + 0.05, profile, profile.rate, 1, voiceMode(project));
   return true;
 }
