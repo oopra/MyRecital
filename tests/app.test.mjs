@@ -1004,13 +1004,30 @@ test('narration is mixed into the recorded audio, and it ducks the score', async
   void r.musicRestored;
 });
 
-test('the score can be off while narration still plays', async () => {
-  const started = await ev(() => {
+test('the score can be off while narration and effects still play', async () => {
+  const r = await ev(() => {
     ed.project.audio.enabled = false;
     ed.project.scenes[0].narration = { id: 'x', seconds: 1, text: 'x' };
-    return mrAudioPlay(ed.project, 0);
+    const withNarration = mrAudioPlay(ed.project, 0);
+    mrAudioStop();
+    delete ed.project.scenes[0].narration;
+    // Nothing but footsteps and weather is still a soundtrack.
+    ed.project.scenes[0].stage = makeStage({
+      actors: [makeActor('A', { seed: 0, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } })]
+    });
+    setKey(ed.project.scenes[0].stage.actors[0], Math.max(1, ed.project.scenes[0].duration - 0.2), { x: 0.9 });
+    const effectsOnly = mrAudioPlay(ed.project, 0);
+    const nodes = mrAudio.nodes.length;
+    mrAudioStop();
+    ed.project.audio.sfx = false;
+    const nothing = mrAudioPlay(ed.project, 0);
+    mrAudioStop();
+    return { withNarration, effectsOnly, nodes, nothing };
   });
-  assert.equal(started, true, 'a silent score must not silence the narrator');
+  assert.equal(r.withNarration, true, 'a silent score must not silence the narrator');
+  assert.equal(r.effectsOnly, true, 'nor the footsteps');
+  assert.ok(r.nodes > 0, 'and they are really scheduled');
+  assert.equal(r.nothing, false, 'with all three off there is nothing to play');
 });
 
 test('picture-first mode drops the words to subtitles and calms the camera', async () => {
@@ -1967,27 +1984,47 @@ test('a child is drawn shorter than a grown-up, with a bigger head', async () =>
   assert.ok(r.elder.height < r.adult.height, 'an elder stands a little lower');
 });
 
-test('children take quicker, shorter steps than grown-ups', async () => {
+test('short legs take more steps, and an old body idles on a slower clock', async () => {
   const r = await ev(() => {
-    const walked = (age) => {
+    const walk = (age) => {
       const scene = buildStoryboard('A walk.', { titleCard: false }).scenes[0];
       scene.duration = 4;
-      const actor = makeActor('A', { age, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } });
+      // A fixed seed: the pose phase is seeded, and counting crossings of a sine with a
+      // random phase is how you write a test that fails one run in three.
+      const actor = makeActor('A', { age, seed: 0, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } });
       setKey(actor, 3, { x: 0.9, action: 'walk' });
       scene.stage = makeStage({ actors: [actor] });
-      // Count how many times the leading hip crosses zero: one crossing per step.
-      let steps = 0, was = 0;
-      for (let t = 0; t < 3; t += 0.02) {
-        const hip = posedFor(actor, scene, t).hipL;
-        if (was <= 0 && hip > 0) steps++;
-        was = hip;
-      }
-      return steps;
+      return {
+        strides: strideCycles(actor, 3, stateAt(actor, 3)),
+        steps: footstepCues(actor, scene).length
+      };
     };
-    return { child: walked('child'), adult: walked('adult'), elder: walked('elder') };
+    // Walking is driven by distance, so age cannot change how fast the legs go when the
+    // crossing is timed — it changes how long a stride is. The pace multiplier shows up in
+    // everything that is not going anywhere: a child at seven seconds is where an adult
+    // gets to at seven and a half.
+    const bob = (pace, t) => poseFor('idle', t, 0, false, { pace }).bob;
+    const sway = (age) => ({
+      here: bob(MR_AGES[age].pace, 7),
+      adultLater: bob(1, 7 * MR_AGES[age].pace)
+    });
+    return {
+      child: walk('child'), adult: walk('adult'), elder: walk('elder'),
+      sway: { child: sway('child'), elder: sway('elder') },
+      paces: { child: MR_AGES.child.pace, adult: MR_AGES.adult.pace, elder: MR_AGES.elder.pace }
+    };
   });
-  assert.ok(r.child > r.adult, `a child takes more steps to cross (${r.child} vs ${r.adult})`);
-  assert.ok(r.elder <= r.adult, `an elder takes no more than a grown-up (${r.elder} vs ${r.adult})`);
+  assert.ok(r.child.strides > r.adult.strides * 1.4,
+    `a child needs more strides to cross the same stage (${r.child.strides.toFixed(1)} vs ${r.adult.strides.toFixed(1)})`);
+  assert.ok(r.elder.strides > r.adult.strides,
+    `and so does a shorter-legged elder (${r.elder.strides.toFixed(1)} vs ${r.adult.strides.toFixed(1)})`);
+  assert.ok(r.child.steps > r.adult.steps, `and you hear it (${r.child.steps} steps vs ${r.adult.steps})`);
+  assert.ok(r.paces.child > r.paces.adult && r.paces.adult > r.paces.elder,
+    'standing still, a child fidgets faster than an old person');
+  for (const [age, s] of Object.entries(r.sway)) {
+    assert.ok(Math.abs(s.here - s.adultLater) < 1e-9,
+      `a ${age}'s idle clock really is scaled, not just labelled (${s.here} vs ${s.adultLater})`);
+  }
 });
 
 test('the director reads age off the words about each character', async () => {
@@ -2236,6 +2273,186 @@ test('the period button dresses the reel in one undoable step', async () => {
   assert.ok(['kilt', 'robe'].includes(r.after), `dressed for Egypt, got ${r.after}`);
   assert.equal(r.undone, r.before, 'and one undo puts the clothes back');
   assert.match(r.note, /Ancient Egypt/);
+});
+
+// ------------------------------------------------------------------ sound effects
+
+test('a footstep lands on the frame the foot does', async () => {
+  const r = await ev(() => {
+    const scene = buildStoryboard('A walk.', { titleCard: false }).scenes[0];
+    scene.duration = 5;
+    const actor = makeActor('A', { seed: 0, start: { x: 0.08, y: 0.88, scale: 0.5, action: 'walk' } });
+    setKey(actor, 4, { x: 0.92, action: 'walk' });
+    scene.stage = makeStage({ actors: [actor] });
+    const cues = footstepCues(actor, scene);
+    // At the moment of each cue, one leg should be at the far end of its swing — that is
+    // where the foot is on the ground and the two legs are furthest apart.
+    const spread = cues.map((cue) => {
+      const pose = posedFor(actor, scene, cue.at);
+      return Math.abs(pose.hipL - pose.hipR);
+    });
+    // ...and the widest spread the walk ever reaches, to compare against.
+    let widest = 0;
+    for (let t = 0; t < 4; t += 0.02) {
+      const pose = posedFor(actor, scene, t);
+      widest = Math.max(widest, Math.abs(pose.hipL - pose.hipR));
+    }
+    return { count: cues.length, spread, widest, times: cues.map((c) => c.at) };
+  });
+  assert.ok(r.count >= 6, `a stage crossing is several steps (${r.count})`);
+  for (const spread of r.spread) {
+    assert.ok(spread > r.widest * 0.9,
+      `each step lands at a stride extreme (${spread.toFixed(3)} of ${r.widest.toFixed(3)})`);
+  }
+  // Steps are evenly spaced when the walk is even, and never doubled up.
+  const gaps = r.times.slice(1).map((t, i) => t - r.times[i]);
+  assert.ok(Math.min(...gaps) > 0.1, `no two steps on top of each other (${Math.min(...gaps).toFixed(3)}s)`);
+});
+
+test('a character who is not walking makes no footsteps', async () => {
+  const r = await ev(() => {
+    const scene = buildStoryboard('Standing about.', { titleCard: false }).scenes[0];
+    scene.duration = 5;
+    const still = makeActor('Still', { seed: 0, start: { x: 0.3, y: 0.88, scale: 0.5, action: 'idle' } });
+    const talker = makeActor('Talker', { seed: 0, start: { x: 0.7, y: 0.88, scale: 0.5, action: 'talk' } });
+    // Someone who walks and then stops: the steps must stop with them.
+    const stopper = makeActor('Stopper', { seed: 0, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } });
+    setKey(stopper, 2, { x: 0.6, action: 'idle' });
+    scene.stage = makeStage({ actors: [still, talker, stopper] });
+    return {
+      still: footstepCues(still, scene).length,
+      talker: footstepCues(talker, scene).length,
+      stopper: footstepCues(stopper, scene).map((c) => c.at)
+    };
+  });
+  assert.equal(r.still, 0, 'standing still is silent');
+  assert.equal(r.talker, 0, 'so is talking');
+  assert.ok(r.stopper.length > 0, 'the walk before the stop is heard');
+  assert.ok(Math.max(...r.stopper) <= 2.05, `and nothing after it (last step at ${Math.max(...r.stopper)})`);
+});
+
+test('the reel makes the noises the story implies, placed where things are', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('The traveller walked to the fire.\n\nHe fell.', { titleCard: false });
+    directProject(p);
+    const scene = p.scenes[0];
+    scene.duration = 5;
+    scene.background = 'forest';
+    scene.stage = makeStage({
+      actors: [makeActor('A', { seed: 0, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } })],
+      props: [makeProp('fire', { start: { x: 0.85, y: 0.92, scale: 0.14 } })]
+    });
+    setKey(scene.stage.actors[0], 2, { x: 0.7, action: 'idle' });
+    setKey(scene.stage.actors[0], 3, { action: 'fall' });
+    const cues = sfxCuesFor(p);
+    const kinds = {};
+    for (const cue of cues) kinds[cue.kind === 'bed' ? 'bed:' + cue.bed : cue.kind] = (kinds[cue.kind === 'bed' ? 'bed:' + cue.bed : cue.kind] || 0) + 1;
+    const crackles = cues.filter((c) => c.kind === 'crackle');
+    return {
+      kinds,
+      cracklePan: crackles.length ? crackles[0].pan : null,
+      ordered: cues.every((c, i) => i === 0 || c.at >= cues[i - 1].at),
+      summary: sfxSummary(p)
+    };
+  });
+  assert.ok(r.kinds.step > 0, 'the walk is heard');
+  assert.ok(r.kinds.thud > 0, 'so is the fall');
+  assert.ok(r.kinds.crackle > 2, 'the fire crackles more than once');
+  assert.ok(r.kinds['bed:wind'] > 0, 'the forest brings its own air');
+  assert.ok(r.cracklePan > 0.3, `the fire is over on the right, where it stands (${r.cracklePan})`);
+  assert.equal(r.ordered, true, 'cues come out in time order');
+  assert.match(r.summary, /footstep/);
+});
+
+test('sound effects are deterministic, and off when switched off', async () => {
+  const r = await ev(() => {
+    const build = () => {
+      const p = buildStoryboard('She walked past the fire.', { titleCard: false });
+      p.scenes[0].background = 'village';
+      p.scenes[0].stage = makeStage({
+        actors: [makeActor('A', { seed: 0, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } })],
+        props: [makeProp('fire', { start: { x: 0.8, y: 0.92, scale: 0.14 } })]
+      });
+      setKey(p.scenes[0].stage.actors[0], 2.5, { x: 0.8, action: 'walk' });
+      return p;
+    };
+    const one = sfxCuesFor(build());
+    const two = sfxCuesFor(build());
+    const project = build();
+    project.audio.sfx = false;
+    const started = mrAudioPlay(project, 0);
+    const scheduledWithOff = mrScheduleSfx === undefined;
+    mrAudioStop();
+    return {
+      same: JSON.stringify(one) === JSON.stringify(two),
+      count: one.length,
+      started,
+      scheduledWithOff
+    };
+  });
+  assert.ok(r.count > 5, 'there are cues to compare');
+  assert.equal(r.same, true, 'the same reel always sounds the same — no unseeded randomness');
+  assert.equal(r.started, true, 'the reel still plays with effects off');
+});
+
+test('the score is played by an ensemble, and the period picks one', async () => {
+  const r = await ev(() => {
+    const layers = (project) => {
+      const events = scoreFor(project);
+      return {
+        perc: events.filter((e) => e.type === 'perc').length,
+        pads: events.filter((e) => e.type === 'pad').length,
+        plucks: events.filter((e) => e.type === 'pluck').length,
+        waves: [...new Set(events.filter((e) => e.wave).map((e) => e.wave))].sort()
+      };
+    };
+    const p = buildStoryboard('He walked. She waited. They spoke at last.', { titleCard: false });
+    p.audio.ensemble = 'chamber';
+    const chamber = layers(p);
+    p.audio.ensemble = 'epic';
+    const epic = layers(p);
+    p.audio.ensemble = 'folk';
+    const folk = layers(p);
+    p.audio.ensemble = 'auto';
+    p.style.period = 'rome';
+    const auto = ensembleFor(p).name;
+    p.style.period = 'india';
+    const autoIndia = ensembleFor(p).name;
+    return { chamber, epic, folk, auto, autoIndia };
+  });
+  assert.equal(r.chamber.perc, 0, 'a chamber group has no drum');
+  assert.ok(r.epic.perc > 0, 'an epic one does');
+  assert.ok(r.folk.perc > 0, 'and so does a folk group');
+  assert.ok(r.epic.plucks < r.chamber.plucks, 'the epic arpeggio is sparser');
+  assert.ok(r.epic.waves.includes('sawtooth'), `epic pads are reedier (${r.epic.waves.join(',')})`);
+  assert.ok(r.chamber.pads > 3, 'every scene still gets its chord and its bass');
+  assert.equal(r.auto, 'Epic', 'Rome gets the epic ensemble by default');
+  assert.equal(r.autoIndia, 'Folk drone', 'and ancient India a drone');
+});
+
+test('the sound tab reports what the reel will sound like, and one undo puts it back', async () => {
+  const r = await ev(() => {
+    document.getElementById('storyText').value = 'Ravi walked to the fire and sat down.';
+    document.getElementById('buildBtn').click();
+    document.querySelector('[data-tab="animate"]').click();
+    document.getElementById('directAnimateBtn').click();
+    document.querySelector('[data-tab="sound"]').click();
+    const before = ed.project.audio.ensemble;
+    const select = document.getElementById('audioEnsemble');
+    select.value = 'playful';
+    select.dispatchEvent(new Event('change'));
+    const after = ed.project.audio.ensemble;
+    const note = document.getElementById('ensembleNote').textContent;
+    const summary = document.getElementById('sfxSummary').textContent;
+    document.getElementById('undoBtn').click();
+    return { before, after, undone: ed.project.audio.ensemble, note, summary,
+      options: [...select.options].map((o) => o.value) };
+  });
+  assert.equal(r.after, 'playful');
+  assert.equal(r.undone, r.before, 'one undo puts the score style back');
+  assert.match(r.note, /Playful/);
+  assert.ok(r.options.includes('auto') && r.options.includes('folk'), 'the styles are offered');
+  assert.ok(r.summary.length > 0, 'and the tab says what you will hear');
 });
 
 test('the reel reloads from local storage on the next visit', async () => {

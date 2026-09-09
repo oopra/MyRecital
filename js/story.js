@@ -352,7 +352,12 @@ const MR_DEFAULT_STYLE = {
   imageHint: ''        // appended to every picture search, e.g. "Mahabharata painting"
 };
 
-const MR_DEFAULT_AUDIO = { enabled: true, mood: 'auto', volume: 0.5, accents: true };
+const MR_DEFAULT_AUDIO = {
+  enabled: true, mood: 'auto', volume: 0.5, accents: true,
+  ensemble: 'auto',   // who plays the score; 'auto' follows the period
+  sfx: true,          // footsteps, fire, weather
+  sfxVolume: 0.8
+};
 
 // Pull a title out of the text: an explicit "Title: ..." line, or a short first line that
 // isn't a sentence. Returns { title, body } so the body never repeats the title on screen.

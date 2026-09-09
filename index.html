@@ -411,10 +411,26 @@
         <label class="field"><span>Mood</span><select id="audioMood">
           <option value="auto" selected>Follow each scene</option>
         </select></label>
+        <label class="field"><span>Who plays it</span><select id="audioEnsemble"></select></label>
+      </div>
+      <p id="ensembleNote" class="hint"></p>
+      <div class="field-grid">
         <label class="field"><span>Volume <b id="audioVolumeValue"></b></span>
           <input id="audioVolume" type="range" min="0" max="1" step="0.05"></label>
       </div>
       <label class="check"><input type="checkbox" id="audioAccents" checked> Whoosh on each cut</label>
+
+      <h3 class="pane-subtitle">Sound effects</h3>
+      <label class="check"><input type="checkbox" id="audioSfx" checked> Sound what happens on stage</label>
+      <p class="hint">Footsteps come off the walk itself — the same distance-driven cycle the legs are
+        drawn from — so a step lands on the frame the foot does, and a character who stops walking
+        stops making them. Fire crackles, wells drip, carts clop, banners flap; the background brings
+        its own weather. Everything is placed left or right by where it stands.</p>
+      <div class="field-grid">
+        <label class="field"><span>Effects volume <b id="audioSfxVolumeValue"></b></span>
+          <input id="audioSfxVolume" type="range" min="0" max="1" step="0.05"></label>
+      </div>
+      <p id="sfxSummary" class="hint"></p>
     </div>
 
     <div class="tab-panel" data-panel="export">
@@ -457,6 +473,7 @@
 <script src="js/voice.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>
+  <script src="js/sfx.js"></script>
 <script src="js/export.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/app.js"></script>

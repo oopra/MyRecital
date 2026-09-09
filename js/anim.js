@@ -137,28 +137,41 @@ function previousAction(actor, before) {
   return current;
 }
 
-// How far this actor has travelled, in strides, by time t. Tying the walk cycle to
+// How far this actor has travelled, in strides, over time. Tying the walk cycle to
 // distance rather than to the clock is what stops the feet skating: a character crossing
 // the stage slowly takes slow steps, and one standing still stops stepping.
-function strideCycles(actor, t, state) {
+//
+// The sampling grid is part of the contract, not an implementation detail: the footstep
+// sounds are generated from this same track, and a step that lands a frame off the foot is
+// worse than no step at all.
+const MR_STRIDE_STEP = 0.05;
+
+function strideTrack(actor, upTo, state) {
   const keys = actor.keys || [];
   if (keys.length < 2) return null;
   // A stride is about two steps, and a step is a bit under half a leg length. Everything
   // is in frame fractions, so it scales with how big the character is drawn.
   // Short legs take short steps: a child crossing the same distance takes more of them.
   const age = ageOf(actor.age);
-  const strideLength = Math.max(0.001, 0.42 * (state.scale || 0.5) * age.height * age.legs);
+  const strideLength = Math.max(0.001, 0.42 * ((state && state.scale) || 0.5) * age.height * age.legs);
+  const track = [];
   let distance = 0;
   let previous = stateAt(actor, keys[0].t);
-  const sampleAt = [];
-  for (let time = keys[0].t; time < t; time += 0.05) sampleAt.push(time);
-  sampleAt.push(t);
-  for (const time of sampleAt) {
+  for (let time = keys[0].t; time < upTo; time += MR_STRIDE_STEP) {
     const here = stateAt(actor, time);
     distance += Math.abs(here.x - previous.x);
     previous = here;
+    track.push({ t: time, cycles: distance / strideLength });
   }
-  return distance / strideLength;
+  const last = stateAt(actor, upTo);
+  distance += Math.abs(last.x - previous.x);
+  track.push({ t: upTo, cycles: distance / strideLength });
+  return track;
+}
+
+function strideCycles(actor, t, state) {
+  const track = strideTrack(actor, t, state);
+  return track ? track[track.length - 1].cycles : null;
 }
 
 // The pose an actor is in right now: the right cycle, started at the right moment, and

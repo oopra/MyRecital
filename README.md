@@ -23,7 +23,8 @@ js/images.js      — found artwork: Wikimedia Commons search, licence filter, i
 js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
 js/voice.js       — narration: TTS adapters, audio storage, and the timing it dictates
 js/render.js      — the picture: artwork or 13 procedural backgrounds, camera, captions
-js/audio.js       — the score: synthesised from the scene moods, no audio files
+js/audio.js       — the score: synthesised from the scene moods and an ensemble, no files
+js/sfx.js         — sound effects: footsteps read off the walk, weather, fire, hooves
 js/export.js      — recording (MediaRecorder), stills, captions, project files
 js/editor.js      — the editing tools: timeline, inspector, undo, autosave
 js/app.js         — boot
@@ -408,9 +409,55 @@ draws its procedural background instead of stalling.
 ## The score
 
 There are no audio files. Each scene's mood chooses a root, a scale, a tempo and a chord;
-the whole timeline is scheduled up front as oscillator voices (a pad per scene, an
-arpeggio on the beat) plus a filtered noise whoosh on each cut. Re-cut the story and the
-music re-writes itself. It is mixed into the recording, not just played locally.
+the whole timeline is scheduled up front as oscillator voices plus a filtered noise whoosh
+on each cut. Re-cut the story and the music re-writes itself. It is mixed into the
+recording, not just played locally.
+
+**Mood is what the music is. The ensemble is who plays it.** Splitting those two is what
+turns eight moods into forty: the same sad progression is a lone flute over a drone or a
+string section with a drum under it, and those are different films. Four layers — a held
+pad, a bass on the bar, an arpeggio on the beat, and percussion — are the smallest set that
+sounds like a band rather than a synthesiser.
+
+| Ensemble | What it does |
+| --- | --- |
+| Storybook | Soft pad, warm arpeggio, a light tick. The default. |
+| Chamber | Sine pad, plucked line, no percussion at all. |
+| Epic | Reedy low pad, a strong bass, kick and tick, a sparser arpeggio. |
+| Folk drone | Root and fifth held under everything, hand drum, no chord changes. |
+| Playful | Square-wave arpeggio, bouncy. |
+| Hushed | Quiet drone, half-speed arpeggio, nothing else. |
+
+The default is **Match the period**: a reel set in ancient India opens on a drone and a
+hand drum, one set in Rome on the epic ensemble, one in the Industrial age on chamber
+strings. Override it in the Sound tab whenever the story disagrees.
+
+## Sound effects
+
+Also synthesised, also from nothing: an oscillator and a burst of filtered noise per
+effect, because a zero-asset app cannot ship a `footstep.wav`.
+
+**Footsteps come off the walk itself.** They are not a timer. The cue list is read from the
+same distance-driven walk cycle the legs are drawn from, sampled on the same grid, so a step
+lands on the frame the foot lands on — speed a character up and the steps speed up, stop
+them and the steps stop, and a child's shorter stride is audibly a patter rather than a
+tread. That agreement is the only thing separating footsteps from a rhythm track.
+
+Everything else follows the same rule: the sound comes from what is actually on the stage.
+
+- **What people do.** A fall thuds, kneeling and sitting rustle.
+- **What is standing there.** Fire crackles, wells drip, carts clop, banners flap, towers
+  ring, doors creak.
+- **Where it is.** Forest and village bring wind and birds, a city hums, the sea swells,
+  rain sits still behind everything.
+- **Where it stands.** Every effect is panned by its position on stage and scaled by how
+  near it is drawn, so a fire on the right is on the right.
+
+Effects have their own bus, and duck under a narrator half as far as the music does —
+footsteps you cannot hear during the narration are footsteps nobody made. The cue list
+(`sfxCuesFor`) is pure and seeded, like the renderer: the same reel sounds the same on every
+playback and every recording. The Sound tab tells you what it will sound like before you
+press play — "7 crackles, 5 footsteps, 2 birds, 1 scene of wind."
 
 ## Limitations, honestly
 
@@ -432,6 +479,11 @@ music re-writes itself. It is mixed into the recording, not just played locally.
   guessing game — but expect that first run to be where a shape problem shows up.
 - **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
   outlines — closer to an explainer-video cast than to Pixar.
+- **Synthesised effects sound synthesised.** A footstep built from noise and a sine is
+  recognisably a footstep in place, on time, panned correctly — and recognisably not a
+  recording of a boot on gravel. Surfaces do not vary, and nothing is layered per material.
+  A library of samples would sound better and would cost the app its "no assets" property,
+  which is the trade this file makes on purpose.
 - **Ten periods is not a costume history.** Each era is a handful of silhouettes and a
   palette, chosen because they read at phone size — not a reconstruction, and not regional
   within an era. They are right enough that a child is not being taught something false;

@@ -359,6 +359,15 @@ function syncStyleControls() {
   $('styleProgress').checked = !!style.progressBar;
   $('styleNumbers').checked = !!style.sceneNumbers;
   $('audioEnabled').checked = !!audio.enabled;
+  $('audioEnsemble').value = audio.ensemble || 'auto';
+  $('audioSfx').checked = audio.sfx !== false;
+  $('audioSfxVolume').value = String(audio.sfxVolume != null ? audio.sfxVolume : 0.8);
+  $('audioSfxVolumeValue').textContent = Number($('audioSfxVolume').value).toFixed(2);
+  const band = ensembleFor(ed.project);
+  $('ensembleNote').textContent = (audio.ensemble && audio.ensemble !== 'auto')
+    ? `${band.name}.`
+    : `Matching the period: ${band.name}.`;
+  $('sfxSummary').textContent = audio.sfx === false ? 'Effects are off.' : sfxSummary(ed.project);
   $('audioMood').value = audio.mood;
   $('audioVolume').value = String(audio.volume);
   $('audioVolumeValue').textContent = Math.round(audio.volume * 100) + '%';
@@ -1884,6 +1893,22 @@ function wireEditor() {
   $('audioMood').addEventListener('change', () => {
     if (ed.suppress) return;
     commit('set score mood', (p) => { p.audio.mood = $('audioMood').value; });
+  });
+  const ensembleKeys = ['auto'].concat(Object.keys(MR_ENSEMBLES));
+  fillSelect($('audioEnsemble'), ensembleKeys,
+    ensembleKeys.map((k) => (k === 'auto' ? 'Match the period' : MR_ENSEMBLES[k].name)));
+  $('audioEnsemble').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('set score style', (p) => { p.audio.ensemble = $('audioEnsemble').value; });
+  });
+  $('audioSfx').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('toggle sound effects', (p) => { p.audio.sfx = $('audioSfx').checked; });
+  });
+  $('audioSfxVolume').addEventListener('input', () => {
+    if (ed.suppress) return;
+    $('audioSfxVolumeValue').textContent = Number($('audioSfxVolume').value).toFixed(2);
+    commit('set effects volume', (p) => { p.audio.sfxVolume = Number($('audioSfxVolume').value); });
   });
   $('audioAccents').addEventListener('change', () => {
     if (ed.suppress) return;
