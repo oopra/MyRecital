@@ -2395,6 +2395,38 @@ test('sound effects are deterministic, and off when switched off', async () => {
   assert.equal(r.started, true, 'the reel still plays with effects off');
 });
 
+test('the effects are actually audible on the recorded bus', async () => {
+  const r = await ev(async () => {
+    // Recorded off the same bus the exported video is mixed from, with the score off, so
+    // what is measured is exactly the sound effects. The first version of this file put
+    // them at two percent of full scale — present in the file, inaudible in the room —
+    // which no amount of cue-list testing would have caught.
+    const p = buildStoryboard('He walked across the yard.', { titleCard: false });
+    p.scenes[0].duration = 3;
+    p.audio.enabled = false;
+    p.scenes[0].stage = makeStage({
+      actors: [makeActor('A', { seed: 0, start: { x: 0.05, y: 0.9, scale: 0.5, action: 'walk' } })]
+    });
+    setKey(p.scenes[0].stage.actors[0], 2.8, { x: 0.95, action: 'walk' });
+    mrAudioPlay(p, 0);
+    const recorder = new MediaRecorder(mrAudioStream());
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.start();
+    await new Promise((done) => setTimeout(done, 1600));
+    await new Promise((done) => { recorder.onstop = done; recorder.stop(); });
+    mrAudioStop();
+    const buffer = await new AudioContext().decodeAudioData(await new Blob(chunks).arrayBuffer());
+    const data = buffer.getChannelData(0);
+    let peak = 0, sum = 0;
+    for (let i = 0; i < data.length; i++) { peak = Math.max(peak, Math.abs(data[i])); sum += data[i] * data[i]; }
+    return { peak, rms: Math.sqrt(sum / data.length), seconds: buffer.duration };
+  });
+  assert.ok(r.seconds > 0.5, `something was recorded (${r.seconds.toFixed(2)}s)`);
+  assert.ok(r.peak > 0.02, `and you can hear it (peak ${r.peak.toFixed(4)})`);
+  assert.ok(r.peak < 0.9, `without clipping the mix (peak ${r.peak.toFixed(4)})`);
+});
+
 test('the score is played by an ensemble, and the period picks one', async () => {
   const r = await ev(() => {
     const layers = (project) => {

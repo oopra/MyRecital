@@ -261,10 +261,10 @@ function mrSfxTone(at, duration, gainValue, fromHz, toHz, type, out) {
 // hissing. Wind gusts, sea swells, rain sits still, a city hums.
 function mrSfxBed(kind, at, duration, gainValue) {
   const ctx = mrAudio.ctx;
-  const spec = kind === 'sea' ? { type: 'lowpass', freq: 620, q: 0.7, gain: 0.055, rate: 0.14, depth: 0.6 }
-    : kind === 'rain' ? { type: 'highpass', freq: 1500, q: 0.5, gain: 0.038, rate: 0.5, depth: 0.15 }
-      : kind === 'city' ? { type: 'lowpass', freq: 340, q: 0.6, gain: 0.05, rate: 0.09, depth: 0.25 }
-        : { type: 'lowpass', freq: 420, q: 0.8, gain: 0.035, rate: 0.08, depth: 0.5 };
+  const spec = kind === 'sea' ? { type: 'lowpass', freq: 620, q: 0.7, gain: 0.17, rate: 0.14, depth: 0.6 }
+    : kind === 'rain' ? { type: 'highpass', freq: 1500, q: 0.5, gain: 0.12, rate: 0.5, depth: 0.15 }
+      : kind === 'city' ? { type: 'lowpass', freq: 340, q: 0.6, gain: 0.15, rate: 0.09, depth: 0.25 }
+        : { type: 'lowpass', freq: 420, q: 0.8, gain: 0.1, rate: 0.08, depth: 0.5 };
 
   const src = ctx.createBufferSource();
   src.buffer = mrSfxNoise();
@@ -297,6 +297,10 @@ function mrSfxBed(kind, at, duration, gainValue) {
 
 // One effect, scheduled. Everything is noise plus a tone; what separates a footstep from a
 // bell is which frequencies and how fast they die.
+//
+// The levels are the ones that survive the master gain and the limiter and still sit under
+// the score rather than over it. They were set by recording the bus and measuring it: an
+// effect that peaks two percent of full scale is, in practice, an effect nobody hears.
 function mrSfxPlay(cue, at, duration) {
   const out = mrSfxOut(cue.pan);
   const gain = Math.max(0, cue.gain != null ? cue.gain : 1);
@@ -308,44 +312,44 @@ function mrSfxPlay(cue, at, duration) {
       break;
     case 'step':
       // A scuff and a thump: the scuff is the shoe, the thump is the weight behind it.
-      mrSfxBurst(at, 0.085, 0.05 * gain, 'lowpass', 1500 * pitch, 0.8, out, 500 * pitch);
-      mrSfxTone(at, 0.07, 0.05 * gain, 92 * pitch, 55 * pitch, 'sine', out);
+      mrSfxBurst(at, 0.085, 0.26 * gain, 'lowpass', 1500 * pitch, 0.8, out, 500 * pitch);
+      mrSfxTone(at, 0.07, 0.24 * gain, 92 * pitch, 55 * pitch, 'sine', out);
       break;
     case 'thud':
-      mrSfxBurst(at, 0.2, 0.09 * gain, 'lowpass', 700, 0.7, out, 200);
-      mrSfxTone(at, 0.26, 0.11 * gain, 78, 38, 'sine', out);
+      mrSfxBurst(at, 0.2, 0.42 * gain, 'lowpass', 700, 0.7, out, 200);
+      mrSfxTone(at, 0.26, 0.5 * gain, 78, 38, 'sine', out);
       break;
     case 'rustle':
-      mrSfxBurst(at, 0.26, 0.028 * gain, 'bandpass', 2400 * pitch, 0.7, out, 1500);
+      mrSfxBurst(at, 0.26, 0.13 * gain, 'bandpass', 2400 * pitch, 0.7, out, 1500);
       break;
     case 'crackle':
-      mrSfxBurst(at, 0.035, 0.05 * gain, 'bandpass', (1400 + Math.random() * 2600) * pitch, 4, out);
+      mrSfxBurst(at, 0.035, 0.2 * gain, 'bandpass', (1400 + Math.random() * 2600) * pitch, 4, out);
       break;
     case 'drip':
-      mrSfxTone(at, 0.13, 0.05 * gain, 1150 * pitch, 380 * pitch, 'sine', out);
+      mrSfxTone(at, 0.13, 0.22 * gain, 1150 * pitch, 380 * pitch, 'sine', out);
       break;
     case 'bird':
       // Three chirps, each sweeping up. Two is a beep; three is a bird.
       for (let n = 0; n < 3; n++) {
-        mrSfxTone(at + n * 0.085, 0.055, 0.035 * gain, 2300 * pitch, 3300 * pitch, 'sine', out);
+        mrSfxTone(at + n * 0.085, 0.055, 0.15 * gain, 2300 * pitch, 3300 * pitch, 'sine', out);
       }
       break;
     case 'clop':
       for (const [offset, hz] of [[0, 430], [0.055, 380]]) {
-        mrSfxBurst(at + offset, 0.05, 0.045 * gain, 'bandpass', hz * pitch, 7, out);
+        mrSfxBurst(at + offset, 0.05, 0.2 * gain, 'bandpass', hz * pitch, 7, out);
       }
       break;
     case 'flap':
-      mrSfxBurst(at, 0.3, 0.03 * gain, 'bandpass', 900 * pitch, 1.1, out, 400);
+      mrSfxBurst(at, 0.3, 0.14 * gain, 'bandpass', 900 * pitch, 1.1, out, 400);
       break;
     case 'bell':
       // Inharmonic partials are the whole difference between a bell and an organ note.
-      for (const [ratio, level] of [[1, 0.06], [2.76, 0.03], [5.4, 0.015]]) {
+      for (const [ratio, level] of [[1, 0.26], [2.76, 0.13], [5.4, 0.07]]) {
         mrSfxTone(at, 1.9, level * gain, 420 * pitch * ratio, 418 * pitch * ratio, 'sine', out);
       }
       break;
     case 'creak':
-      mrSfxBurst(at, 0.45, 0.03 * gain, 'bandpass', 620 * pitch, 9, out, 1100);
+      mrSfxBurst(at, 0.45, 0.14 * gain, 'bandpass', 620 * pitch, 9, out, 1100);
       break;
     default:
       break;
