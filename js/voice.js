@@ -157,6 +157,141 @@ function mouthAmountAt(scene, localT) {
   return level < 0.06 ? 0 : Math.min(1, 0.18 + level * 0.85);
 }
 
+// ---------------------------------------------------------------- lip sync
+//
+// Volume alone is a jaw on a hinge. What reads as speech is the mouth taking the shape of
+// the sound, so this turns the line that was actually spoken into a sequence of mouth
+// shapes and lays it along the audio.
+//
+// There is no phoneme recogniser here and no forced aligner — those need a model and a
+// server. What we have instead is exactly two things, and they are enough: the text that
+// was sent to the voice, and the loudness of what came back, thirty times a second. The
+// text gives the ORDER of the shapes; the audio gives WHERE the speech is and how loud.
+// Syllables are laid across the audible frames in proportion, so the shapes track the real
+// rhythm of the reading — its pauses, its slow words — without claiming a precision this
+// cannot have. Watch closely on a long word and the shapes lead or lag by a frame or two.
+// At 30fps, at the size a phone shows a face, it reads as someone talking.
+
+// Two letters first: 'oo' is not 'o' followed by 'o'.
+const MR_VOWEL_VISEMES = [
+  [/^(?:oo|ou|ow|oa|au|aw)/, 'OO'],
+  [/^(?:ee|ea|ie|ei|ay|ai|ey)/, 'EE'],
+  [/^(?:oi|oy)/, 'OO'],
+  [/^a/, 'AA'], [/^e/, 'EE'], [/^i/, 'EE'], [/^o/, 'OO'], [/^u/, 'UH'], [/^y/, 'EE']
+];
+
+const MR_CONSONANT_VISEMES = [
+  [/^(?:m|b|p)/, 'MBP'],
+  [/^(?:f|v|ph)/, 'FV'],
+  [/^(?:th|l|r)/, 'L'],
+  [/^(?:s|z|c|t|d|n|j|g|k|x|q|sh|ch)/, 'S'],
+  [/^(?:w|wh)/, 'OO'],
+  [/^h/, 'UH']
+];
+
+function mrVisemeFor(table, chunk) {
+  for (const [pattern, viseme] of table) if (pattern.test(chunk)) return viseme;
+  return null;
+}
+
+// Split a line into syllable-sized pieces: a leading consonant cluster and its vowel. Each
+// piece becomes one or two mouth shapes, weighted so the consonant is a flick and the
+// vowel is held — which is how syllables are actually spent.
+function visemeSequence(text) {
+  const out = [];
+  const words = String(text || '').toLowerCase().match(/[a-z']+/g) || [];
+  for (const word of words) {
+    const letters = word.replace(/'/g, '');
+    let i = 0;
+    let found = false;
+    while (i < letters.length) {
+      const consonants = /^[^aeiouy]*/.exec(letters.slice(i))[0];
+      const rest = letters.slice(i + consonants.length);
+      const vowels = /^[aeiouy]*/.exec(rest)[0];
+      if (!vowels) break;
+      found = true;
+      if (consonants) {
+        const shape = mrVisemeFor(MR_CONSONANT_VISEMES, consonants.slice(-2)) ||
+          mrVisemeFor(MR_CONSONANT_VISEMES, consonants.slice(-1));
+        if (shape) out.push({ viseme: shape, weight: 1 });
+      }
+      out.push({ viseme: mrVisemeFor(MR_VOWEL_VISEMES, vowels) || 'UH', weight: 2.4 });
+      i += consonants.length + vowels.length;
+    }
+    // A word with no vowel at all ("hmm", "shh") still closes and opens the mouth.
+    if (!found && letters) out.push({ viseme: mrVisemeFor(MR_CONSONANT_VISEMES, letters) || 'MBP', weight: 2 });
+    // The gap between words is a real, visible beat of closure at speaking speed.
+    out.push({ viseme: 'rest', weight: 0.5 });
+  }
+  return out;
+}
+
+// Lay that sequence along the audio and return one shape per envelope frame, stored as
+// indices so a minute of narration costs a couple of kilobytes rather than a novel.
+function visemesFrom(text, envelope) {
+  const sequence = visemeSequence(text);
+  const frames = new Array(envelope.length).fill(0);
+  if (!sequence.length) return frames;
+
+  // Which frames carry speech. Everything else is a shut mouth, and the pauses are where
+  // this alignment gets most of its accuracy for free.
+  const voiced = [];
+  for (let i = 0; i < envelope.length; i++) if (envelope[i] >= 7) voiced.push(i);
+  if (!voiced.length) return frames;
+
+  const total = sequence.reduce((sum, piece) => sum + piece.weight, 0);
+  let spent = 0;
+  let at = 0;
+  for (const piece of sequence) {
+    const from = Math.round((spent / total) * voiced.length);
+    spent += piece.weight;
+    const to = Math.round((spent / total) * voiced.length);
+    const index = MR_VISEME_KINDS.indexOf(piece.viseme);
+    for (let k = Math.max(from, at); k < to; k++) frames[voiced[k]] = index < 0 ? 0 : index;
+    at = to;
+  }
+  return frames;
+}
+
+// No narration, but the character is talking: the words are known, only their timing is
+// not. Spend the same shapes at an ordinary speaking rate. It is a guess about rhythm, not
+// about content — which is the right way round.
+const MR_SPEAK_UNITS_PER_SECOND = 13;
+let mrSpeakCache = { text: null, sequence: null, total: 0 };
+
+function spokenMouthAt(text, localT) {
+  if (!text) return null;
+  if (mrSpeakCache.text !== text) {
+    const sequence = visemeSequence(text);
+    mrSpeakCache = { text, sequence, total: sequence.reduce((sum, piece) => sum + piece.weight, 0) };
+  }
+  const { sequence, total } = mrSpeakCache;
+  if (!total) return null;
+  let at = ((localT * MR_SPEAK_UNITS_PER_SECOND) % total + total) % total;
+  for (const piece of sequence) {
+    at -= piece.weight;
+    if (at < 0) {
+      return {
+        open: piece.viseme === 'rest' ? 0 : (piece.weight > 1.5 ? 0.85 : 0.45),
+        viseme: piece.viseme
+      };
+    }
+  }
+  return { open: 0, viseme: 'rest' };
+}
+
+// The mouth at this instant: how far open, and in what shape. `null` when there is no
+// narration to follow — the caller falls back to a timed flap.
+function mouthAt(scene, localT) {
+  const open = mouthAmountAt(scene, localT);
+  if (open == null) return null;
+  const visemes = scene.narration && scene.narration.visemes;
+  if (!visemes || !visemes.length) return open;
+  const i = Math.floor(localT * MR_ENVELOPE_RATE);
+  const kind = MR_VISEME_KINDS[visemes[Math.max(0, Math.min(visemes.length - 1, i))]] || 'rest';
+  return { open, viseme: open > 0.05 ? kind : 'rest' };
+}
+
 function narrationBuffer(sceneId) {
   return mrNarrationBuffers.get(sceneId) || null;
 }
@@ -171,9 +306,10 @@ async function narrateScene(scene, project, opts) {
   if (scene.narration && scene.narration.id) deleteNarrationBlob(scene.narration.id).catch(() => {});
   await saveNarrationBlob(id, blob);
   const buffer = await decodeNarration(scene.id, blob);
+  const envelope = envelopeFrom(buffer);
   scene.narration = {
     id, mime, seconds: buffer.duration, text: scene.text, at: Date.now(),
-    envelope: envelopeFrom(buffer)
+    envelope, visemes: visemesFrom(scene.text, envelope)
   };
   scene.duration = Math.round((buffer.duration + (narration.gap || 0.45)) * 10) / 10;
   return scene.narration;
@@ -189,6 +325,10 @@ async function restoreNarration(project) {
       if (blob) {
         const buffer = await decodeNarration(scene.id, blob);
         if (!scene.narration.envelope) scene.narration.envelope = envelopeFrom(buffer);
+        // Reels made before lip sync existed get their mouth shapes on the way back in.
+        if (!scene.narration.visemes) {
+          scene.narration.visemes = visemesFrom(scene.narration.text || scene.text, scene.narration.envelope);
+        }
         restored++;
       }
     } catch { /* a scene with no audio simply plays silent */ }

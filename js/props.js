@@ -176,6 +176,36 @@ const MR_PROPS = {
       }, 0.012);
     }
   },
+  // ---- landmarks. One shape per era, because a period reads from its skyline first.
+  pyramid: {
+    name: 'Pyramid', layer: 'back', ratio: 1.6,
+    draw(ctx, tint) {
+      mrShape(ctx, tint, () => { ctx.moveTo(-0.8, 0); ctx.lineTo(0, -1); ctx.lineTo(0.8, 0); ctx.closePath(); });
+      mrShape(ctx, mrShade(tint, -0.22), () => { ctx.moveTo(0, -1); ctx.lineTo(0.8, 0); ctx.lineTo(0.1, 0); ctx.closePath(); });
+    }
+  },
+  column: {
+    name: 'Column', layer: 'stage', ratio: 0.42,
+    draw(ctx, tint) {
+      mrShape(ctx, mrShade(tint, -0.1), () => { ctx.rect(-0.21, -0.09, 0.42, 0.09); });      // base
+      mrShape(ctx, tint, () => { ctx.rect(-0.15, -0.9, 0.3, 0.81); });                       // shaft
+      mrShape(ctx, mrShade(tint, -0.14), () => { ctx.rect(-0.05, -0.9, 0.05, 0.81); });      // one flute
+      mrShape(ctx, mrShade(tint, 0.1), () => { ctx.rect(-0.22, -1, 0.44, 0.1); });           // capital
+    }
+  },
+  tower: {
+    name: 'Tower', layer: 'back', ratio: 0.7,
+    draw(ctx, tint) {
+      mrShape(ctx, tint, () => { ctx.rect(-0.3, -0.86, 0.6, 0.86); });
+      mrShape(ctx, mrShade(tint, -0.18), () => { ctx.rect(0.08, -0.86, 0.22, 0.86); });
+      // Crenellations: three teeth is enough to say castle.
+      for (const x of [-0.3, -0.1, 0.1]) mrShape(ctx, mrShade(tint, 0.08), () => { ctx.rect(x, -1, 0.2, 0.16); });
+      mrShape(ctx, '#2b2119', () => {
+        ctx.moveTo(-0.09, -0.44); ctx.lineTo(-0.09, -0.6);
+        ctx.quadraticCurveTo(0, -0.72, 0.09, -0.6); ctx.lineTo(0.09, -0.44); ctx.closePath();
+      });
+    }
+  },
   cloud: {
     name: 'Cloud', layer: 'back', ratio: 2.0,
     draw(ctx, tint) {

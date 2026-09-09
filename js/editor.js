@@ -352,6 +352,9 @@ function syncStyleControls() {
   $('motionScaleValue').textContent = Number(style.motionScale).toFixed(2);
   $('styleWatermark').value = style.watermark || '';
   $('styleLook').value = style.look || 'natural';
+  $('stylePeriod').value = style.period || 'modern';
+  const period = periodOf(style.period);
+  $('periodNote').textContent = `${period.name} — ${period.when}. ${period.note}`;
   $('stylePanel').value = style.panel ? '1' : '';
   $('styleProgress').checked = !!style.progressBar;
   $('styleNumbers').checked = !!style.sceneNumbers;
@@ -1148,6 +1151,7 @@ function syncAnimatePanel() {
   $('actorAction').value = state.action;
   $('actorExpression').value = state.expression;
   $('actorFacing').value = state.facing;
+  $('actorAge').value = chosen.age || 'adult';
   $('actorBody').value = chosen.body;
   $('actorHairStyle').value = chosen.hairStyle;
   $('actorScale').value = String(state.scale);
@@ -1254,6 +1258,8 @@ function wireStageDragging() {
 function wireAnimate() {
   fillSelect($('actorAction'), MR_ACTIONS);
   fillSelect($('actorExpression'), Object.keys(MR_EXPRESSIONS));
+  const ages = Object.keys(MR_AGES);
+  fillSelect($('actorAge'), ages, ages.map((a) => MR_AGES[a].name));
   const bodies = Object.keys(MR_BODIES);
   fillSelect($('actorBody'), bodies, bodies.map((b) => MR_BODIES[b].name));
   fillSelect($('actorHairStyle'), MR_HAIR_STYLES);
@@ -1286,7 +1292,7 @@ function wireAnimate() {
     });
   }
   // Body, hair and colours are the character themselves — they apply to the whole reel.
-  for (const [id, prop] of [['actorBody', 'body'], ['actorHairStyle', 'hairStyle'], ['actorSkin', 'skin'],
+  for (const [id, prop] of [['actorAge', 'age'], ['actorBody', 'body'], ['actorHairStyle', 'hairStyle'], ['actorSkin', 'skin'],
     ['actorHair', 'hair'], ['actorTop', 'top'], ['actorBottom', 'bottom'],
     ['actorCostume', 'costume'], ['actorHeadwear', 'headwear'], ['actorHeadwearColour', 'headwearColour']]) {
     $(id).addEventListener('change', () => {
@@ -1848,6 +1854,18 @@ function wireEditor() {
   $('stylePanel').addEventListener('change', () => {
     if (ed.suppress) return;
     commit('toggle page border', (p) => { p.style.panel = !!$('stylePanel').value; });
+  });
+  const periodKeys = MR_PERIOD_KEYS;
+  fillSelect($('stylePeriod'), periodKeys, periodKeys.map((k) => `${MR_PERIODS[k].name} · ${MR_PERIODS[k].when}`));
+  $('stylePeriod').addEventListener('change', () => {
+    if (ed.suppress) return;
+    // Choosing a period only records it; dressing the cast is the button, because it
+    // overwrites clothes somebody may have picked by hand.
+    commit('set period', (p) => { p.style.period = $('stylePeriod').value; });
+  });
+  $('periodBtn').addEventListener('click', () => {
+    const key = $('stylePeriod').value;
+    commit('dress for ' + periodOf(key).name, (p) => { applyPeriod(p, key); });
   });
   $('comicPresetBtn').addEventListener('click', applyComicPreset);
   $('applyLookAllBtn').addEventListener('click', () => {

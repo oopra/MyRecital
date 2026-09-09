@@ -31,6 +31,7 @@ function makeActor(name, opts) {
   return {
     id: mrActorId(),
     name: name || 'Character',
+    age: o.age || 'adult',            // child, youth, adult or elder — proportions and pace
     body: o.body || 'average',
     skin: o.skin || MR_SKINS[1],
     hair: o.hair || MR_HAIRS[0],
@@ -144,7 +145,9 @@ function strideCycles(actor, t, state) {
   if (keys.length < 2) return null;
   // A stride is about two steps, and a step is a bit under half a leg length. Everything
   // is in frame fractions, so it scales with how big the character is drawn.
-  const strideLength = Math.max(0.001, 0.42 * (state.scale || 0.5));
+  // Short legs take short steps: a child crossing the same distance takes more of them.
+  const age = ageOf(actor.age);
+  const strideLength = Math.max(0.001, 0.42 * (state.scale || 0.5) * age.height * age.legs);
   let distance = 0;
   let previous = stateAt(actor, keys[0].t);
   const sampleAt = [];
@@ -166,7 +169,7 @@ function posedFor(actor, scene, localT) {
   const speaking = actorSpeaking(actor, scene, localT);
   const tIn = Math.max(0, localT - start);
 
-  const opts = { tIn };
+  const opts = { tIn, pace: ageOf(actor.age).pace };
   if (action === 'walk') {
     const cycles = strideCycles(actor, localT, state);
     // Walking on the spot still needs a cycle, so fall back to the clock when the
@@ -180,22 +183,27 @@ function posedFor(actor, scene, localT) {
   // not teleport into a sitting position.
   const blend = mrSat(tIn / 0.28);
   if (blend >= 1) return pose;
-  const before = poseFor(previous, localT, actor.seed, speaking, { tIn: tIn + 1 });
+  const before = poseFor(previous, localT, actor.seed, speaking, { tIn: tIn + 1, pace: opts.pace });
   return blendPoses(before, pose, mrEaseKey(blend));
 }
 
 // How much this actor's mouth is open right now, 0..1 (or false for "not speaking").
-// With narration it follows the measured loudness of the line — real lip-sync. Without
-// it, an actor set to "talk" falls back to the old timed flap, which is all you can do
-// with no audio to follow.
+// With narration it follows the measured loudness of the line AND the shapes of the words
+// in it — real lip sync. Without narration, the words are still known even though their
+// timing is not, so the same shapes are spent at an ordinary speaking rate.
 function actorSpeaking(actor, scene, localT) {
-  if (!actor.speaker) return false;
+  if (!actor.speaker) {
+    // Anyone else set to "talk" still moves their mouth; we just have nothing to sync to.
+    return false;
+  }
   if (scene.narration && scene.narration.seconds) {
     if (localT >= scene.narration.seconds) return false;
-    const measured = typeof mouthAmountAt === 'function' ? mouthAmountAt(scene, localT) : null;
+    const measured = typeof mouthAt === 'function' ? mouthAt(scene, localT) : null;
     return measured != null ? measured : true;
   }
-  return actorStateAt(actor, localT).action === 'talk';
+  if (actorStateAt(actor, localT).action !== 'talk') return false;
+  const spoken = typeof spokenMouthAt === 'function' ? spokenMouthAt(scene.text, localT) : null;
+  return spoken || true;
 }
 
 // ---------------------------------------------------------------- the stage
@@ -239,7 +247,8 @@ function drawStage(ctx, scene, localT, w, h, look) {
       continue;
     }
     const pose = posedFor(item, scene, localT);
-    const height = state.scale * h;
+    // The size slider says where they stand in the frame; their age says how tall they are.
+    const height = actorHeight(item, state.scale * h);
     ctx.save();
     if (state.rotate) {
       ctx.translate(state.x * w, state.y * h);
@@ -270,8 +279,10 @@ function actorAtPoint(scene, localT, fx, fy) {
     const { item, state } = entry;
     const spec = entry.kind === 'prop' ? MR_PROPS[item.kind] : null;
     const ratio = spec ? spec.ratio : 0.32;                 // width as a share of height
-    const halfWidth = state.scale * Math.max(0.14, ratio / 2);
-    const top = state.y - state.scale * (spec ? 1.05 : 1);
+    // A child is drawn shorter, so the box you can click has to be shorter too.
+    const drawn = spec ? state.scale : actorHeight(item, state.scale);
+    const halfWidth = drawn * Math.max(0.14, ratio / 2);
+    const top = state.y - drawn * (spec ? 1.05 : 1);
     if (fx >= state.x - halfWidth && fx <= state.x + halfWidth && fy >= top && fy <= state.y + 0.02) {
       return item;
     }

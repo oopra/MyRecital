@@ -154,6 +154,7 @@
           <label class="field"><span>Facing</span><select id="actorFacing">
             <option value="right">Right</option><option value="left">Left</option>
           </select></label>
+          <label class="field"><span>Age</span><select id="actorAge"></select></label>
           <label class="field"><span>Body</span><select id="actorBody"></select></label>
           <label class="field"><span>Hair</span><select id="actorHairStyle"></select></label>
           <label class="field"><span>Wearing</span><select id="actorCostume"></select></label>
@@ -341,6 +342,19 @@
       <p class="hint">Sets the heavy-ink cast style, a bright comic palette, flat village
         backgrounds, speech balloons and a page border in one go. Everything it changes is a
         normal setting you can then tune, and one undo puts it all back.</p>
+
+      <h3 class="pane-subtitle">When it happens</h3>
+      <div class="field-grid">
+        <label class="field"><span>Period</span><select id="stylePeriod"></select></label>
+      </div>
+      <p id="periodNote" class="hint"></p>
+      <div class="field-row">
+        <button id="periodBtn" class="btn primary wide">Dress the reel for this period</button>
+      </div>
+      <p class="hint">Puts every character in clothes from that century, picks the palette and the
+        scenery to match, and tells the auto-director which landmark belongs on the skyline. It
+        leaves faces and skin alone: every era had every kind of person in it, and a date cannot
+        tell you who was there.</p>
       <div class="field-row">
         <button id="applyLookAllBtn" class="btn ghost">Apply this scene's camera to all</button>
       </div>
@@ -434,6 +448,7 @@
 
 <script src="js/actors.js"></script>
 <script src="js/props.js"></script>
+  <script src="js/period.js"></script>
 <script src="js/anim.js"></script>
 <script src="js/direct.js"></script>
 <script src="js/story.js"></script>

@@ -14,7 +14,8 @@ No build step, no framework, no backend, no media assets.
 index.html        — the page: three panes (story, preview, tools)
 css/styles.css    — all styling
 js/actors.js      — the puppets: rig, poses, walk/talk/point cycles, faces
-js/props.js       — the scenery: 14 procedural props, drawn in the same flat ink style
+js/props.js       — the scenery: 17 procedural props, drawn in the same flat ink style
+js/period.js      — when it happens: ten eras, their clothes, palettes and landmarks
 js/anim.js        — the timeline: keyframes, interpolation, the stage, hit testing
 js/direct.js      — auto-direction: casting, blocking, actions, dialogue, scenery
 js/story.js       — text → storyboard: sentence splitting, beats, mood, pacing
@@ -154,6 +155,13 @@ text to a finished comic-styled animation without placing a single character by 
 
 Open the **Animate** tab, press **+ Character**, and drag them around the preview.
 
+- **How old they are.** Child, young, grown-up or old, and it is not a body preset — it
+  multiplies whichever body you picked, so a sturdy child and a slight child are both
+  recognisably children. Four numbers carry it: head against body, how tall they stand
+  beside the adults, how fast they move, how much they stoop. A child is not a small adult;
+  its head is nearly a quarter of its height and it takes quicker, shorter steps. Size on
+  the slider is where they stand in the frame; age is who they are, and they stay separate
+  so that putting a child next to an adult needs no arithmetic.
 - **A character is a rig, not a picture.** Five body types, six skin tones, five hair
   styles, four colours you pick — and nine actions (idle, talk, walk, point, wave, think,
   sit, kneel, fall) and six expressions that are all drawn from joint angles rather than
@@ -236,6 +244,49 @@ reveal and the emphasis colouring, and calms the camera. The picture holds the f
 the words get out of the way. Choose it whenever there are people on screen carrying the
 scene; the words-first look is for reels that *are* typography.
 
+## When it happens
+
+A history reel is wrong in a way a fable never is: if the people in it are dressed for the
+wrong century, the video teaches something false before it says a word. So the era is a
+setting of the project. Pick it in the **Look** tab and press **Dress the reel for this
+period**.
+
+| Period | Roughly | What it puts people in |
+| --- | --- | --- |
+| Ancient Egypt | 3000–30 BCE | Linen kilts and shifts, broad collars, nemes headcloths, pyramids |
+| Ancient India | 1500–200 BCE | Dhotis, sarees, kurtas, turbans |
+| Ancient Greece | 800–300 BCE | Pinned chitons, wreaths, crested helmets, columns |
+| Ancient Rome | 500 BCE–476 CE | Tunics and draped togas, laurel, helmets |
+| Imperial China | 200 BCE–1900 CE | Long crossed robes, sashes, scholar caps |
+| Medieval Europe | 500–1500 | Belted tunics, long gowns, hoods, helms, castle towers |
+| Mughal India | 1526–1857 | Flared jamas, sashes, sarees, turbans |
+| Age of Sail | 1600–1800 | Frock coats, three-cornered hats, long gowns |
+| Industrial age | 1800–1900 | Frock coats and top hats, bonnets, brick and smoke |
+| Modern | 1900 on | Ordinary clothes, any colour |
+
+A period sets the clothes, the palette and the flat scenery, and tells the auto-director
+which landmark belongs on the skyline when a beat mentions a palace or a temple. Silhouette
+does more of that work than colour ever will: a toga and a frock coat are the same two arms
+and two legs until you cut the cloth.
+
+Three things worth knowing:
+
+- **It leaves faces and skin alone.** Every era on that list held every kind of person.
+  Deciding otherwise from a date would be both crude and false, and clothing carries the
+  century anyway. Skin, hair and face stay yours to set.
+- **It only guesses what the story says.** The auto-director reads age off the words near
+  each name — "a young prince named Ashoka", "the old sage" — and only avoids putting a boy
+  in a saree when the story has actually called him a boy. Where the words say nothing,
+  neither does the tool, and every garment is one click away in the character panel.
+- **The button is safe to press twice.** A character remembers which era they were dressed
+  for, so re-dressing for the period you are already in leaves alone the hat you picked by
+  hand. Changing period re-dresses everyone from scratch, because half a Roman is worse
+  than none. Either way it is one undo.
+
+Ten sets of clothes drawn as silhouettes will never be a costume history. They are the
+difference between "someone in a robe" and "someone in jeans in ancient Egypt", which is
+the difference that matters to a child watching.
+
 ## Narration
 
 Open the **Sound** tab, pick a voice, press **Narrate every scene**. Each line is spoken by
@@ -255,13 +306,24 @@ made that way plays for you and is silently missing from the exported file.
 | OpenAI | `functions/api/voice.js` | Named voices, plus a delivery-notes field the current TTS models honour |
 | ElevenLabs | `functions/api/voice.js` | Addressed by voice id, so you paste the id of a voice you have |
 
-**Lip-sync.** When a line is narrated, the app measures its loudness thirty times a second
+**Lip sync.** When a line is narrated, the app measures its loudness thirty times a second
 and stores that envelope with the scene. Whichever character you mark as the speaker then
-opens and closes their mouth on the *actual syllables* of the recording rather than
-flapping on a timer. This is amplitude lip-sync — the technique hand-drawn animation has
-always used. It will not tell an "oo" from an "ee", and nothing here does phoneme shapes;
-what it does do is stop the mouth moving during the silences, which is most of what makes
-a talking character look alive.
+opens their mouth on the *actual syllables* of the recording rather than flapping on a
+timer — and takes the *shape* of what is being said, from nine mouth positions: lips shut
+for m, b and p, round for oo, wide for ee, teeth on the lip for f and v, and so on.
+
+The shapes come from the words, the timing comes from the audio. There is no phoneme
+recogniser here and no forced aligner — those need a model and a server. What the app has
+instead is exactly two things, and between them they are enough: the text that was sent to
+the voice, which gives the ORDER of the shapes, and the loudness of what came back, which
+gives where the speech is, where the pauses are and how loud each moment is. Syllables are
+laid across the audible frames in proportion, so the mouth tracks the real rhythm of the
+reading. Watch a long word closely and a shape may lead or lag by a frame or two; at 30fps,
+at the size a phone shows a face, it reads as someone talking.
+
+With no narration at all, a character set to "talk" still shapes the words of their line —
+the same shapes, spent at an ordinary speaking rate. That is a guess about rhythm, never
+about content, which is the right way round.
 
 Roughly 1–3¢ per scene. Audio blobs live in IndexedDB beside the panels; the project file
 keeps the length and the id, which is what lets it stay small while the reel stays timed
@@ -354,10 +416,12 @@ music re-writes itself. It is mixed into the recording, not just played locally.
 
 - **Recording is real-time.** A frame-accurate offline render would need to drop the live
   audio graph, so this trades exactness for a mixed soundtrack in one pass.
-- **No narration.** Browser speech synthesis cannot be captured into `MediaRecorder`, so
-  a spoken voiceover would play locally and be missing from the file. Rather than ship
-  that trap, MyRecital does captions and score only — add narration in your editor if you
-  want it, using the exported `.srt` as the script.
+- **Narration needs a TTS key and a deployed function.** Browser speech synthesis cannot be
+  captured into `MediaRecorder`, so a voiceover made that way would play locally and be
+  silently missing from the file. Real TTS returns bytes that can be both played and mixed
+  into the recording — which is why narration goes through `functions/api/voice.js` rather
+  than through the browser. Without that, the reel is captions and score, and the exported
+  `.srt` is your script.
 - **Likeness.** Photoreal presets make convincing pictures of people who do not exist.
   Don't use them to depict a real, identifiable person saying or doing something they
   didn't — that is the one use of this app that is nobody's idea of a story.
@@ -368,11 +432,19 @@ music re-writes itself. It is mixed into the recording, not just played locally.
   guessing game — but expect that first run to be where a shape problem shows up.
 - **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
   outlines — closer to an explainer-video cast than to Pixar.
+- **Ten periods is not a costume history.** Each era is a handful of silhouettes and a
+  palette, chosen because they read at phone size — not a reconstruction, and not regional
+  within an era. They are right enough that a child is not being taught something false;
+  they are not right enough to cite.
 - **Props are scenery, not furniture you interact with.** A character can stand beside a
   chair; there is no "sit on that chair" that snaps them into it, and no collision of any
   kind. You place both by hand.
-- **Lip-sync is amplitude-based**, not phoneme-based: the mouth opens on loudness, so it
-  never forms an "oh". Real mouth shapes would need forced alignment against a transcript.
+- **Lip sync is aligned by proportion, not by recognition.** The mouth shapes are real —
+  nine of them, taken from the words that were actually spoken — and the timing follows the
+  measured loudness, so silences and pauses land exactly. But nothing here listens to the
+  audio and identifies sounds: within a run of speech the syllables are spread evenly, so a
+  long drawled word can put a shape a frame or two early or late. Frame-exact placement
+  needs forced alignment against a transcript, which needs a model and a server.
 - **Still pictures, not moving footage** in the *image-generation* path — A panel gets a Ken Burns move over it; nobody in
   it walks. Real motion means a video model (Veo, Kling, Runway and friends), which is a
   different kind of call — asynchronous jobs, minutes per clip, dollars rather than cents —

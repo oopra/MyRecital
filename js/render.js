@@ -26,7 +26,14 @@ const MR_PALETTES = {
   candy:    { name: 'Candy',     colors: ['#1b1035', '#3b1f7a', '#7a4bff', '#57e6ff', '#ffd166'] },
   comicday: { name: 'Comic day', colors: ['#1d3b2a', '#3f7a4a', '#5aa9e6', '#e8b04b', '#f6d76b'] },
   comicdusk: { name: 'Comic dusk', colors: ['#2a1b2e', '#7a4a5a', '#e08a5a', '#ffd08a', '#ffeec2'] },
-  tide:     { name: 'Tide',      colors: ['#03151c', '#0a3a4a', '#12879e', '#7ff0e0', '#ffc46b'] }
+  tide:     { name: 'Tide',      colors: ['#03151c', '#0a3a4a', '#12879e', '#7ff0e0', '#ffc46b'] },
+  // Period palettes. The eras a history reel spends its time in, mixed so the flat
+  // backgrounds land somewhere real: desert, marble, wet stone, coal smoke.
+  sand:     { name: 'Sand',      colors: ['#2a1d10', '#c9a86a', '#7fc4e8', '#e0b23c', '#fff0c4'] },
+  marble:   { name: 'Marble',    colors: ['#232028', '#b9b089', '#8fc6e0', '#d9c98f', '#fff8e8'] },
+  stone:    { name: 'Stone',     colors: ['#1c1f26', '#5f6b58', '#9fb6cc', '#8c8272', '#e8e4d8'] },
+  sepia:    { name: 'Sepia',     colors: ['#241a12', '#8a7a5e', '#b9c3c9', '#c0a06a', '#f2e6cf'] },
+  mughal:   { name: 'Mughal',    colors: ['#241634', '#7a5a8a', '#8fc6e0', '#e0a83c', '#ffe9b8'] }
 };
 
 const MR_FONTS = {

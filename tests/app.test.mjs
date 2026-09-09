@@ -24,6 +24,9 @@ beforeEach(async () => { page = await newReelPage(); });
 
 const ev = (fn, arg) => page.evaluate(fn, arg);
 
+// Kept here so the test says what Roman means rather than asking the code under test.
+const MR_ROME_COSTUMES = ['toga', 'chiton'];
+
 // ------------------------------------------------------------------ the parser
 
 test('splitSentences keeps terminators and ignores abbreviations', async () => {
@@ -1920,6 +1923,319 @@ test('an arm crossing the body stays visible against the garment', async () => {
   });
   assert.ok(r.torso > 200, `the chest is drawn (${JSON.stringify(r)})`);
   assert.ok(r.other > r.torso * 0.12, `the arm is distinguishable from it (${JSON.stringify(r)})`);
+});
+
+// ------------------------------------------------------------------ age
+
+test('a child is drawn shorter than a grown-up, with a bigger head', async () => {
+  const r = await ev(() => {
+    const measure = (age) => {
+      const c = document.createElement('canvas');
+      c.width = 260; c.height = 320;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 260, 320);
+      const actor = makeActor('A', { age, top: '#c2452d', hair: '#1c1512' });
+      // Same size setting for both: age is what changes how tall they stand.
+      drawActor(x, actor, poseFor('idle', 2, 0, false, { tIn: 2 }), 130, 300, actorHeight(actor, 260));
+      const data = x.getImageData(0, 0, 260, 320).data;
+      let top = 320, face = 0;
+      for (let y = 0; y < 320; y++) {
+        let ink = 0, skin = 0;
+        for (let px = 0; px < 260; px++) {
+          const i = (y * 260 + px) * 4;
+          if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) continue;
+          ink++;
+          // The skin the actor was given, within a few points either way.
+          if (Math.abs(data[i] - 224) < 14 && Math.abs(data[i + 1] - 170) < 14 && Math.abs(data[i + 2] - 124) < 14) skin++;
+        }
+        if (ink && y < top) top = y;
+        // The widest band of face on any row: the head, since nothing else is that wide.
+        if (skin > face) face = skin;
+      }
+      return { height: 300 - top, face };
+    };
+    return { child: measure('child'), adult: measure('adult'), elder: measure('elder') };
+  });
+  assert.ok(r.child.height < r.adult.height * 0.8,
+    `a child stands shorter (${r.child.height} vs ${r.adult.height})`);
+  // Head as a share of the whole figure: the giveaway that this is a child and not a
+  // shrunken adult. The widest run of skin on any row is the face.
+  const childShare = r.child.face / r.child.height;
+  const adultShare = r.adult.face / r.adult.height;
+  assert.ok(childShare > adultShare * 1.15,
+    `and the head takes up more of them (${childShare.toFixed(3)} vs ${adultShare.toFixed(3)})`);
+  assert.ok(r.elder.height < r.adult.height, 'an elder stands a little lower');
+});
+
+test('children take quicker, shorter steps than grown-ups', async () => {
+  const r = await ev(() => {
+    const walked = (age) => {
+      const scene = buildStoryboard('A walk.', { titleCard: false }).scenes[0];
+      scene.duration = 4;
+      const actor = makeActor('A', { age, start: { x: 0.1, y: 0.88, scale: 0.5, action: 'walk' } });
+      setKey(actor, 3, { x: 0.9, action: 'walk' });
+      scene.stage = makeStage({ actors: [actor] });
+      // Count how many times the leading hip crosses zero: one crossing per step.
+      let steps = 0, was = 0;
+      for (let t = 0; t < 3; t += 0.02) {
+        const hip = posedFor(actor, scene, t).hipL;
+        if (was <= 0 && hip > 0) steps++;
+        was = hip;
+      }
+      return steps;
+    };
+    return { child: walked('child'), adult: walked('adult'), elder: walked('elder') };
+  });
+  assert.ok(r.child > r.adult, `a child takes more steps to cross (${r.child} vs ${r.adult})`);
+  assert.ok(r.elder <= r.adult, `an elder takes no more than a grown-up (${r.elder} vs ${r.adult})`);
+});
+
+test('the director reads age off the words about each character', async () => {
+  const r = await ev(() => {
+    const story = 'The old potter sat at her wheel.\n\nA boy named Ravi ran to her.\n\n' +
+      'Ravi asked about the fire. The potter smiled.';
+    const p = buildStoryboard(story, { titleCard: false });
+    const report = directProject(p);
+    const ages = {};
+    for (const scene of p.scenes) {
+      for (const actor of (scene.stage && scene.stage.actors) || []) ages[actor.name] = actor.age;
+    }
+    return { ages, reported: [...report.ages.entries()] };
+  });
+  assert.equal(r.ages.Ravi, 'child', `Ravi is a boy, got ${r.ages.Ravi}`);
+  assert.equal(r.ages.Potter, 'elder', `the old potter is old, got ${r.ages.Potter}`);
+});
+
+// ------------------------------------------------------------------ period
+
+test('dressing for a period puts the whole cast in that century', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Ashoka spoke to the people.\n\nThe people listened.', { titleCard: false });
+    directProject(p);
+    applyPeriod(p, 'rome');
+    const worn = [];
+    for (const scene of p.scenes) {
+      for (const actor of (scene.stage && scene.stage.actors) || []) {
+        worn.push({ name: actor.name, costume: actor.costume, headwear: actor.headwear });
+      }
+    }
+    return { worn, palette: p.style.palette, background: p.scenes[0].background, period: p.style.period };
+  });
+  assert.ok(r.worn.length, 'there is a cast to dress');
+  const roman = MR_ROME_COSTUMES;
+  for (const person of r.worn) {
+    assert.ok(roman.includes(person.costume), `${person.name} wears ${person.costume}, which is not Roman`);
+  }
+  assert.equal(r.palette, 'marble', 'the palette follows the period');
+  assert.equal(r.period, 'rome');
+  assert.ok(['village', 'flatland'].includes(r.background), `background was ${r.background}`);
+});
+
+test('a character keeps the same clothes in every scene, and across a second dressing', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Meera walked to the well.\n\nMeera drew water.\n\nMeera went home.', { titleCard: false });
+    directProject(p);
+    applyPeriod(p, 'medieval');
+    const wornIn = (project) => project.scenes
+      .flatMap((s) => (s.stage && s.stage.actors) || [])
+      .filter((a) => a.name === 'Meera')
+      .map((a) => `${a.costume}/${a.headwear}/${a.top}`);
+    const first = wornIn(p);
+    // Someone changes one hat by hand, then presses the button again.
+    for (const scene of p.scenes) {
+      for (const actor of (scene.stage && scene.stage.actors) || []) actor.headwear = 'crown';
+    }
+    applyPeriod(p, 'medieval');
+    const afterSecond = wornIn(p);
+    applyPeriod(p, 'egypt');
+    const afterChange = wornIn(p);
+    return { first, afterSecond, afterChange };
+  });
+  assert.ok(r.first.length >= 2, 'Meera is in several scenes');
+  assert.equal(new Set(r.first).size, 1, `same clothes throughout, got ${JSON.stringify(r.first)}`);
+  assert.ok(r.afterSecond.every((w) => w.includes('crown')),
+    'dressing for the period you are already in leaves hand-picked choices alone');
+  assert.ok(!r.afterChange.some((w) => w.includes('crown')), 'changing period re-dresses from scratch');
+  assert.equal(new Set(r.afterChange).size, 1, 'and still agrees with itself across scenes');
+});
+
+test('a kilt leaves the legs bare instead of putting trousers under it', async () => {
+  const r = await ev(() => {
+    const legColour = (costume) => {
+      const c = document.createElement('canvas');
+      c.width = 200; c.height = 260;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 200, 260);
+      drawActor(x, makeActor('A', { costume, skin: '#e0aa7c', bottom: '#101a3a', top: '#f2ead6' }),
+        poseFor('idle', 2, 0, false, { tIn: 2 }), 100, 240, 230);
+      const d = x.getImageData(0, 0, 200, 260).data;
+      // Sample the shin, well below any hem.
+      let skin = 0, cloth = 0;
+      for (let y = 195; y < 225; y++) {
+        for (let px = 60; px < 140; px++) {
+          const i = (y * 200 + px) * 4;
+          if (d[i] > 200 && d[i + 1] > 140 && d[i + 2] > 90 && d[i + 2] < 200) skin++;
+          else if (d[i] < 60 && d[i + 1] < 60 && d[i + 2] > 40) cloth++;
+        }
+      }
+      return { skin, cloth };
+    };
+    return { kilt: legColour('kilt'), modern: legColour('modern') };
+  });
+  assert.ok(r.kilt.skin > r.kilt.cloth * 3, `bare shins under a kilt (${JSON.stringify(r.kilt)})`);
+  assert.ok(r.modern.cloth > r.modern.skin, `trousers under modern clothes (${JSON.stringify(r.modern)})`);
+});
+
+// ------------------------------------------------------------------ lip sync
+
+test('lip sync makes mouth shapes from the words, not just the volume', async () => {
+  const r = await ev(() => {
+    const text = 'My name is Ashoka and I walked to the river.';
+    const envelope = [];
+    for (let i = 0; i < 120; i++) envelope.push(i < 4 || i > 114 ? 1 : 40 + Math.round(40 * Math.abs(Math.sin(i * 0.6))));
+    const visemes = visemesFrom(text, envelope);
+    const scene = { text, narration: { seconds: 4, envelope, visemes } };
+    const names = visemes.map((v) => MR_VISEME_KINDS[v]);
+    const sampled = [];
+    for (let t = 0; t < 3.9; t += 0.1) sampled.push(mouthAt(scene, t));
+    return {
+      distinct: [...new Set(names)],
+      silentStart: names[1],
+      silentEnd: names[names.length - 2],
+      firstSpoken: names.slice(4, 12),
+      shapes: [...new Set(sampled.map((m) => m && m.viseme))],
+      opens: sampled.map((m) => (m ? m.open : null))
+    };
+  });
+  assert.ok(r.distinct.length >= 5, `several shapes are used, got ${r.distinct.join(',')}`);
+  assert.equal(r.silentStart, 'rest', 'silence is a shut mouth');
+  assert.equal(r.silentEnd, 'rest', 'and so is the tail');
+  // "My" starts with an M: the lips have to close before the vowel.
+  assert.ok(r.firstSpoken.includes('MBP'), `an m closes the lips, got ${r.firstSpoken.join(',')}`);
+  assert.ok(r.shapes.length >= 4, 'the shape changes through the line, not only the opening');
+  assert.ok(r.opens.some((o) => o > 0.5), 'and the mouth actually opens');
+});
+
+test('the mouth shape follows the sound: oo is round, ee is wide', async () => {
+  const r = await ev(() => {
+    const widthOf = (viseme) => {
+      const c = document.createElement('canvas');
+      c.width = 200; c.height = 200;
+      const x = c.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 200, 200);
+      // A big head, framed on the mouth.
+      drawActor(x, makeActor('A', {}), poseFor('idle', 2, 0, { open: 1, viseme }, { tIn: 2 }), 100, 700, 800);
+      const d = x.getImageData(0, 0, 200, 200).data;
+      let minX = 200, maxX = 0, minY = 200, maxY = 0;
+      for (let y = 0; y < 200; y++) {
+        for (let px = 0; px < 200; px++) {
+          const i = (y * 200 + px) * 4;
+          // The inside of an open mouth, exactly: hair blended over skin lands in the same
+          // broad brown range, so a loose filter measures the head instead of the mouth.
+          if (Math.abs(d[i] - 109) < 8 && Math.abs(d[i + 1] - 47) < 8 && Math.abs(d[i + 2] - 43) < 8) {
+            if (px < minX) minX = px; if (px > maxX) maxX = px;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+        }
+      }
+      return maxX < minX ? null : { w: maxX - minX, h: maxY - minY };
+    };
+    return { OO: widthOf('OO'), EE: widthOf('EE'), AA: widthOf('AA'), MBP: widthOf('MBP') };
+  });
+  assert.ok(r.OO && r.EE && r.AA, `the open shapes draw an opening (${JSON.stringify(r)})`);
+  assert.ok(r.EE.w > r.OO.w * 1.5, `ee is wider than oo (${r.EE.w} vs ${r.OO.w})`);
+  assert.ok(r.AA.h > r.EE.h * 1.4, `aa is taller than ee (${r.AA.h} vs ${r.EE.h})`);
+  assert.equal(r.MBP, null, 'and m is a shut mouth with no opening at all');
+});
+
+test('with no narration the mouth still speaks the words it has', async () => {
+  const r = await ev(() => {
+    const text = 'Peace, my friend, and welcome home.';
+    const sampled = [];
+    for (let t = 0; t < 3; t += 0.05) sampled.push(spokenMouthAt(text, t));
+    return {
+      shapes: [...new Set(sampled.map((m) => m.viseme))],
+      closed: sampled.filter((m) => m.open === 0).length,
+      open: sampled.filter((m) => m.open > 0.5).length
+    };
+  });
+  assert.ok(r.shapes.length >= 4, `shapes from the text, got ${r.shapes.join(',')}`);
+  assert.ok(r.open > 5, 'the mouth opens');
+  assert.ok(r.closed > 0, 'and shuts between words');
+});
+
+test('the character panel offers an age, and choosing one redraws them', async () => {
+  const r = await ev(() => {
+    document.querySelector('[data-tab="animate"]').click();
+    document.getElementById('storyText').value = 'Ravi ran to the river.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    const scene = ed.project.scenes.find((s) => s.stage && s.stage.actors.length);
+    selectScene(scene.id, true);
+    mrSelectedActorId = scene.stage.actors[0].id;
+    syncInspector();
+    const select = document.getElementById('actorAge');
+    const options = [...select.options].map((o) => o.value);
+    const before = actorHeight(scene.stage.actors[0], 100);
+    select.value = 'child';
+    select.dispatchEvent(new Event('change'));
+    const after = actorHeight(currentStage().actors[0], 100);
+    return { options, before, after, hidden: document.getElementById('actorEditor').hidden };
+  });
+  assert.equal(r.hidden, false, 'the character panel is showing');
+  assert.deepEqual(r.options, ['child', 'youth', 'adult', 'elder']);
+  assert.ok(r.after < r.before * 0.8, `choosing child redraws them shorter (${r.after} vs ${r.before})`);
+});
+
+test('the preview paints a staged, dressed scene rather than a blank frame', async () => {
+  const r = await ev(() => {
+    document.getElementById('storyText').value =
+      'Ashoka and the Elephant\n\nA young prince rode to the great city.\n\nThe old sage waited at the temple.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    commit('dress', (p) => { applyPeriod(p, 'india'); });
+    const scene = ed.project.scenes.find((s) => s.stage && s.stage.actors.length);
+    selectScene(scene.id, true);
+    const times = sceneTimeline(ed.project);
+    const at = times[ed.project.scenes.indexOf(scene)].start + scene.duration * 0.5;
+    const canvas = document.getElementById('preview');
+    const x = canvas.getContext('2d');
+    x.clearRect(0, 0, canvas.width, canvas.height);
+    renderFrame(x, ed.project, at, { width: canvas.width, height: canvas.height });
+    const d = x.getImageData(0, 0, canvas.width, canvas.height).data;
+    const seen = new Set();
+    let lit = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] > 0) lit++;
+      seen.add(`${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`);
+    }
+    return { lit, total: d.length / 4, colours: seen.size };
+  });
+  assert.ok(r.lit > r.total * 0.98, 'the frame is fully painted');
+  assert.ok(r.colours > 12, `and has a picture in it, not one flat colour (${r.colours} colours)`);
+});
+
+test('the period button dresses the reel in one undoable step', async () => {
+  const r = await ev(async () => {
+    document.querySelector('[data-tab="animate"]').click();
+    document.getElementById('storyText').value = 'Ashoka spoke to the people at the temple.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    const before = (ed.project.scenes[0].stage.actors[0] || {}).costume;
+    document.querySelector('[data-tab="look"]').click();
+    const select = document.getElementById('stylePeriod');
+    select.value = 'egypt';
+    select.dispatchEvent(new Event('change'));
+    document.getElementById('periodBtn').click();
+    const after = ed.project.scenes[0].stage.actors[0].costume;
+    const note = document.getElementById('periodNote').textContent;
+    document.getElementById('undoBtn').click();
+    const undone = ed.project.scenes[0].stage.actors[0].costume;
+    return { before, after, undone, note, palette: ed.project.style.palette };
+  });
+  assert.ok(['kilt', 'robe'].includes(r.after), `dressed for Egypt, got ${r.after}`);
+  assert.equal(r.undone, r.before, 'and one undo puts the clothes back');
+  assert.match(r.note, /Ancient Egypt/);
 });
 
 test('the reel reloads from local storage on the next visit', async () => {

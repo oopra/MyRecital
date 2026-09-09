@@ -34,14 +34,64 @@ function lookOf(name) {
   return MR_LOOKS[name] || MR_LOOKS.natural;
 }
 
+// Age is not a body preset — it multiplies whichever body you picked, so a sturdy child
+// and a slight child are both recognisably children. The numbers are the ones that
+// actually read at phone size: how big the head is against the body, how tall the figure
+// stands next to the adults, how fast it moves, and how much it stoops.
+//
+// A child is not a small adult. Its head is nearly a quarter of its height, its legs are
+// proportionally shorter, and it moves faster and more often. An elder stands a little
+// lower, leans forward, and moves slowly. Get those four numbers right and a crowd scene
+// reads as a family without a word of explanation.
+const MR_AGES = {
+  child:  { name: 'Child (5-10)',    head: 1.34, height: 0.68, legs: 0.86, limb: 0.92, eye: 1.16, pace: 1.35, stoop: 0 },
+  youth:  { name: 'Young (11-17)',   head: 1.14, height: 0.86, legs: 0.94, limb: 0.96, eye: 1.08, pace: 1.15, stoop: 0 },
+  adult:  { name: 'Grown-up',        head: 1,    height: 1,    legs: 1,    limb: 1,    eye: 1,    pace: 1,    stoop: 0 },
+  elder:  { name: 'Old',             head: 1.02, height: 0.94, legs: 0.97, limb: 0.98, eye: 0.94, pace: 0.72, stoop: 0.11 }
+};
+
+function ageOf(name) {
+  return MR_AGES[name] || MR_AGES.adult;
+}
+
+// The height an actor is actually drawn at. Age belongs here rather than in the size
+// slider: the slider is where the character stands in the frame, age is who they are, and
+// keeping them apart means putting a child next to an adult does not need arithmetic.
+function actorHeight(actor, baseHeight) {
+  return baseHeight * ageOf(actor && actor.age).height;
+}
+
 const MR_SKINS = ['#f2c9a0', '#e0aa7c', '#c98b5e', '#a8663c', '#7d4b2c', '#5a3520'];
 const MR_HAIRS = ['#1c1512', '#3b2a1d', '#6b4a2b', '#a8722e', '#8d8d95', '#e8e2d8', '#2b3a55'];
 const MR_HAIR_STYLES = ['short', 'long', 'bun', 'bald', 'braid'];
 
-// What the character is wearing. 'modern' is a top and trousers; the rest are the shapes
-// Indian comics actually draw, and they change the silhouette more than any colour does.
-const MR_COSTUMES = ['modern', 'kurta', 'dhoti', 'saree', 'robe'];
-const MR_HEADWEAR = ['none', 'turban', 'cap', 'crown'];
+// What the character is wearing. 'modern' is a top and trousers; the rest are silhouettes
+// from somewhere and sometime, because a history reel lives or dies on whether the people
+// in it are dressed for the century. Silhouette does more work than colour ever will: a
+// toga and a frock coat are the same two arms and two legs until you cut the cloth.
+const MR_COSTUMES = [
+  'modern', 'kurta', 'dhoti', 'saree', 'robe',
+  'kilt',    // Egyptian schenti: a short wrapped linen skirt
+  'chiton',  // Greek: a pinned tunic to the knee or the ankle
+  'toga',    // Roman: the chiton with a draped band over one shoulder
+  'gown',    // Medieval European: a long belted dress or surcoat
+  'jama',    // Mughal: a flared coat tied at the side, over churidar
+  'coat'     // Frock coat: colonial through Victorian
+];
+// Costumes that leave the legs bare. Drawing trousers under a kilt or a chiton is the
+// single fastest way to make a cartoon Egyptian look like a man in pyjamas.
+const MR_BARE_LEG_COSTUMES = ['kilt', 'chiton', 'toga', 'dhoti'];
+
+const MR_HEADWEAR = [
+  'none', 'turban', 'cap', 'crown',
+  'nemes',   // the striped Egyptian headcloth
+  'laurel',  // a Greek or Roman wreath
+  'helmet',  // crested, close enough for Greece, Rome and the Middle Ages
+  'hood',    // medieval European
+  'tricorn', // three-cornered hat, 1700s
+  'tophat',
+  'bonnet'
+];
 
 // Expressions are three numbers: brow angle, eye openness, mouth shape. Everything a flat
 // character needs to read as calm, worried, angry, glad or shocked at phone size.
@@ -66,7 +116,7 @@ function mrPoseBase() {
     lean: 0, bob: 0, drop: 0, headTurn: 0, headTilt: 0,
     shoulderL: 0.06, elbowL: 0.12, shoulderR: -0.06, elbowR: -0.12,
     hipL: 0.04, kneeL: 0.03, hipR: -0.04, kneeR: 0.03,
-    mouthOpen: 0, blink: 0
+    mouthOpen: 0, viseme: null, blink: 0
   };
 }
 
@@ -84,11 +134,16 @@ const MR_ARM_UP = Math.PI;
 //   t        scene time, for continuous idles like breathing and blinking
 //   opts.tIn seconds since this action began — gestures need to start, not just exist
 //   opts.cycle walk cycles completed, derived from distance travelled so feet do not skate
-function poseFor(action, t, seed, speaking, opts) {
+function poseFor(action, clock, seed, speaking, opts) {
   const o = opts || {};
   const p = mrPoseBase();
   const offset = ((seed || 0) % 100) / 100 * Math.PI * 2;
-  const tIn = o.tIn != null ? o.tIn : t;
+  const tIn = o.tIn != null ? o.tIn : clock;
+  // Everything cyclic — breath, blink, sway, beats, steps — runs on a clock that age
+  // scales. A child fidgets faster than an adult and an old person moves slower, and that
+  // difference reads before any of the proportions do. Settling into a gesture still takes
+  // real seconds, so `tIn` is deliberately left off this clock.
+  const t = clock * (o.pace || 1);
 
   // Everyone breathes and blinks, whatever else they are doing — stillness reads as dead.
   p.bob = Math.sin(t * 1.1 + offset) * 0.004;
@@ -247,9 +302,14 @@ function poseFor(action, t, seed, speaking, opts) {
     }
   }
 
-  // Speaking overrides the mouth whatever the body is doing. A number is measured
-  // loudness from the narration; `true` means "speaking, but we cannot hear it".
-  if (typeof speaking === 'number') p.mouthOpen = Math.max(0, Math.min(1, speaking));
+  // Speaking overrides the mouth whatever the body is doing. Three forms, in order of how
+  // much we know: `{ open, viseme }` is measured loudness plus the shape of the sound being
+  // made — real lip sync; a bare number is loudness only; `true` means "speaking, but we
+  // cannot hear it", which is all a reel with no narration can honestly claim.
+  if (speaking && typeof speaking === 'object') {
+    p.mouthOpen = Math.max(0, Math.min(1, speaking.open || 0));
+    p.viseme = speaking.viseme || 'rest';
+  } else if (typeof speaking === 'number') p.mouthOpen = Math.max(0, Math.min(1, speaking));
   else if (speaking) p.mouthOpen = 0.35 + Math.abs(Math.sin(t * 2 * Math.PI * 5.5 + offset)) * 0.65;
   else if (action === 'talk') p.mouthOpen = 0.3 + Math.abs(Math.sin(t * 2 * Math.PI * 4.5 + offset)) * 0.5;
   return p;
@@ -284,10 +344,74 @@ function mrLimb(ctx, x0, y0, angle, length, width, colour) {
   return { x: x1, y: y1, angle };
 }
 
-function mrMouth(ctx, x, y, size, shape, open) {
+// Mouth shapes for speech. Real lip sync is not a jaw hinging open and shut in time with
+// the volume — it is the mouth taking the SHAPE of the sound. Nine shapes is the standard
+// working set for hand-drawn animation and it is plenty: at phone size the difference
+// between "oo" and "ee" carries, and the difference between "t" and "d" does not.
+//
+// Sizes are fractions of the head radius. `ry` is the fully-open height; how far open the
+// mouth actually is comes from the loudness at that instant.
+const MR_VISEMES = {
+  rest: { rx: 0.17, ry: 0.02 },
+  MBP:  { rx: 0.20, ry: 0.02, press: true },              // m, b, p — lips shut
+  AA:   { rx: 0.21, ry: 0.30, tongue: true },             // father, cat
+  EE:   { rx: 0.26, ry: 0.13, teeth: true },              // see, it
+  OO:   { rx: 0.12, ry: 0.21 },                           // boot, go
+  UH:   { rx: 0.18, ry: 0.19 },                           // but, the
+  FV:   { rx: 0.20, ry: 0.07, teeth: true },              // f, v — teeth on the lip
+  L:    { rx: 0.18, ry: 0.22, tongue: true },             // l, th — tongue showing
+  S:    { rx: 0.21, ry: 0.06, teeth: true }               // s, z, t, d, n
+};
+
+const MR_VISEME_KINDS = Object.keys(MR_VISEMES);
+
+function mrMouth(ctx, x, y, size, shape, open, viseme) {
   ctx.lineWidth = Math.max(1, size * 0.08);
   ctx.strokeStyle = 'rgba(70,38,28,0.9)';
   ctx.lineCap = 'round';
+  const v = viseme && MR_VISEMES[viseme];
+  if (v && open > 0.04) {
+    const rx = size * v.rx;
+    // Loudness opens the shape; it never changes which shape it is.
+    const ry = size * v.ry * (0.35 + open * 0.65);
+    if (v.press) {
+      ctx.lineWidth = Math.max(1.2, size * 0.11);
+      ctx.beginPath();
+      ctx.moveTo(x - rx, y); ctx.lineTo(x + rx, y);
+      ctx.stroke();
+      return;
+    }
+    ctx.fillStyle = '#6d2f2b';
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (v.teeth) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = '#f6efe4';
+      ctx.fillRect(x - rx, y - ry, rx * 2, ry * 0.85);
+      ctx.restore();
+    }
+    if (v.tongue && ry > size * 0.12) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.fillStyle = '#c96a72';
+      ctx.beginPath();
+      ctx.ellipse(x, y + ry * 0.72, rx * 0.66, ry * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.strokeStyle = 'rgba(70,38,28,0.55)';
+    ctx.lineWidth = Math.max(1, size * 0.045);
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
   if (open > 0.05) {
     ctx.fillStyle = '#6d2f2b';
     ctx.beginPath();
@@ -402,6 +526,106 @@ function mrCostume(ctx, kind, colour, trim, hipY, shoulderY, hipHalf, shoulderHa
         ctx.closePath();
       });
     }
+  } else if (kind === 'kilt') {
+    // Egyptian schenti: a short wrapped linen skirt, and the broad collar that does more
+    // to say "Egypt" than the skirt does.
+    fill(() => {
+      ctx.moveTo(-hipHalf - pad, hipY - height * 0.03);
+      ctx.lineTo(-hipHalf * 1.35 - pad, hipY + height * 0.13);
+      ctx.lineTo(hipHalf * 1.35 + pad, hipY + height * 0.13);
+      ctx.lineTo(hipHalf + pad, hipY - height * 0.03);
+      ctx.closePath();
+    });
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.ellipse(0, shoulderY + height * 0.03, shoulderHalf * 0.92 + pad, height * 0.045 + pad, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.rect(-hipHalf * 0.12, hipY - height * 0.03, hipHalf * 0.24, height * 0.15);
+    ctx.fill();
+  } else if (kind === 'chiton' || kind === 'toga') {
+    // A pinned tunic, belted at the waist, falling to the shin. The toga adds the band
+    // over one shoulder — the one silhouette everybody reads as Rome.
+    fill(() => {
+      ctx.moveTo(-shoulderHalf - pad, shoulderY + height * 0.01);
+      ctx.lineTo(-hipHalf * 1.75 - pad, hipY + height * 0.2);
+      ctx.lineTo(hipHalf * 1.75 + pad, hipY + height * 0.2);
+      ctx.lineTo(shoulderHalf + pad, shoulderY + height * 0.01);
+      ctx.closePath();
+    });
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = height * 0.012;
+    ctx.beginPath();
+    ctx.moveTo(-hipHalf * 1.15, hipY - height * 0.01);
+    ctx.lineTo(hipHalf * 1.15, hipY - height * 0.01);
+    ctx.stroke();
+    if (kind === 'toga') {
+      fill(() => {
+        ctx.moveTo(-shoulderHalf - pad, shoulderY);
+        ctx.lineTo(-shoulderHalf * 0.35, shoulderY);
+        ctx.lineTo(hipHalf * 1.5 + pad, hipY + height * 0.09);
+        ctx.lineTo(hipHalf * 0.5, hipY + height * 0.12);
+        ctx.closePath();
+      });
+    }
+  } else if (kind === 'gown') {
+    // Medieval Europe: cut from the shoulder, belted high, hem on the floor.
+    fill(() => {
+      ctx.moveTo(-shoulderHalf - pad, shoulderY + height * 0.01);
+      ctx.lineTo(-hipHalf * 2.2 - pad, -height * 0.005);
+      ctx.lineTo(hipHalf * 2.2 + pad, -height * 0.005);
+      ctx.lineTo(shoulderHalf + pad, shoulderY + height * 0.01);
+      ctx.closePath();
+    });
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = height * 0.016;
+    ctx.beginPath();
+    ctx.moveTo(-hipHalf * 1.1, hipY - height * 0.03);
+    ctx.lineTo(hipHalf * 1.1, hipY - height * 0.03);
+    ctx.stroke();
+  } else if (kind === 'jama') {
+    // Mughal: a flared coat to below the knee, crossed at the chest and tied at one side,
+    // with a sash at the waist.
+    fill(() => {
+      ctx.moveTo(-shoulderHalf - pad, shoulderY + height * 0.015);
+      ctx.lineTo(-hipHalf * 1.9 - pad, hipY + height * 0.24);
+      ctx.lineTo(hipHalf * 1.9 + pad, hipY + height * 0.24);
+      ctx.lineTo(shoulderHalf + pad, shoulderY + height * 0.015);
+      ctx.closePath();
+    });
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = height * 0.009;
+    ctx.beginPath();
+    ctx.moveTo(-shoulderHalf * 0.7, shoulderY + height * 0.03);
+    ctx.lineTo(hipHalf * 0.95, hipY - height * 0.035);
+    ctx.stroke();
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.rect(-hipHalf * 1.25 - pad, hipY - height * 0.03, hipHalf * 2.5 + pad * 2, height * 0.032);
+    ctx.fill();
+  } else if (kind === 'coat') {
+    // A frock coat: colonial through Victorian. Knee-length, open, with a pale shirt
+    // showing between the lapels.
+    fill(() => {
+      ctx.moveTo(-shoulderHalf - pad, shoulderY + height * 0.01);
+      ctx.lineTo(-hipHalf * 1.5 - pad, hipY + height * 0.16);
+      ctx.lineTo(-hipHalf * 0.35, hipY + height * 0.16);
+      ctx.lineTo(-hipHalf * 0.2, shoulderY + height * 0.05);
+      ctx.lineTo(hipHalf * 0.2, shoulderY + height * 0.05);
+      ctx.lineTo(hipHalf * 0.35, hipY + height * 0.16);
+      ctx.lineTo(hipHalf * 1.5 + pad, hipY + height * 0.16);
+      ctx.lineTo(shoulderHalf + pad, shoulderY + height * 0.01);
+      ctx.closePath();
+    });
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.moveTo(-hipHalf * 0.2, shoulderY + height * 0.05);
+    ctx.lineTo(0, shoulderY + height * 0.015);
+    ctx.lineTo(hipHalf * 0.2, shoulderY + height * 0.05);
+    ctx.lineTo(0, hipY - height * 0.01);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -434,6 +658,112 @@ function mrHeadwear(ctx, kind, r, colour, trim) {
     ctx.lineTo(r * 0.85, -r * 0.55);
     ctx.closePath();
     ctx.fill();
+  } else if (kind === 'nemes') {
+    // The Egyptian headcloth: over the crown, and down past the jaw on both sides. The
+    // lappets are what make it read as Egypt rather than as a hat.
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.02, -r * 0.35);
+    ctx.lineTo(-r * 1.28, r * 0.95);
+    ctx.lineTo(-r * 0.66, r * 0.95);
+    ctx.lineTo(-r * 0.7, -r * 0.2);
+    ctx.closePath();
+    ctx.moveTo(r * 1.02, -r * 0.35);
+    ctx.lineTo(r * 1.28, r * 0.95);
+    ctx.lineTo(r * 0.66, r * 0.95);
+    ctx.lineTo(r * 0.7, -r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.42, r * 1.06, r * 0.72, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.rect(-r * 1.04, -r * 0.42, r * 2.08, r * 0.16);
+    ctx.fill();
+  } else if (kind === 'laurel') {
+    // A wreath: leaves around the crown, open at the front.
+    ctx.fillStyle = colour;
+    for (let i = 0; i < 7; i++) {
+      const a = Math.PI * (1.08 + i * 0.13);
+      const x = Math.cos(a) * r * 0.98, y = Math.sin(a) * r * 0.98;
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(side * x, y);
+        ctx.rotate(side * a);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.2, r * 0.09, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  } else if (kind === 'helmet') {
+    // A dome to the brow with a nose bar and a crest — near enough for a hoplite, a
+    // legionary or a man-at-arms, which is as far as one shape can honestly stretch.
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.12, r * 1.06, r * 1.02, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.rect(-r * 1.06, -r * 0.2, r * 2.12, r * 0.2);
+    ctx.rect(-r * 0.1, -r * 0.2, r * 0.2, r * 0.62);
+    ctx.fill();
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.12, -r * 1.08);
+    ctx.quadraticCurveTo(0, -r * 1.7, r * 0.5, -r * 1.5);
+    ctx.quadraticCurveTo(r * 0.2, -r * 1.2, r * 0.12, -r * 1.02);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === 'hood') {
+    // Cowl over the head and down the neck, open around the face.
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.12, r * 0.9);
+    ctx.quadraticCurveTo(-r * 1.24, -r * 1.16, 0, -r * 1.16);
+    ctx.quadraticCurveTo(r * 1.24, -r * 1.16, r * 1.12, r * 0.9);
+    ctx.lineTo(r * 0.78, r * 0.86);
+    ctx.quadraticCurveTo(r * 0.94, -r * 0.5, 0, -r * 0.62);
+    ctx.quadraticCurveTo(-r * 0.94, -r * 0.5, -r * 0.78, r * 0.86);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === 'tricorn') {
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.78, r * 0.82, r * 0.46, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.5, -r * 0.72);
+    ctx.quadraticCurveTo(0, -r * 1.5, r * 1.5, -r * 0.72);
+    ctx.quadraticCurveTo(0, -r * 0.5, -r * 1.5, -r * 0.72);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === 'tophat') {
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.rect(-r * 0.62, -r * 1.95, r * 1.24, r * 1.2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.78, r * 1.16, r * 0.17, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.rect(-r * 0.62, -r * 0.98, r * 1.24, r * 0.2);
+    ctx.fill();
+  } else if (kind === 'bonnet') {
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.35, r * 1.08, r * 0.94, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.2, -r * 0.35, r * 1.2, r * 0.5, -0.35, Math.PI * 0.9, Math.PI * 2.1);
+    ctx.fill();
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = r * 0.11;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.62, r * 0.1);
+    ctx.quadraticCurveTo(0, r * 1.1, r * 0.62, r * 0.1);
+    ctx.stroke();
   }
 }
 
@@ -470,14 +800,22 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
   };
   const ink = actor.ink || look.ink;
   const costume = actor.costume || 'modern';
+  // Bare legs are skin, and what is on the feet is sandals rather than shoes.
+  const bareLegs = MR_BARE_LEG_COSTUMES.indexOf(costume) >= 0;
+  if (bareLegs) colours.shoe = '#8a6a4a';
+  const legColour = bareLegs ? 'skin' : 'bottom';
   const headwear = actor.headwear || 'none';
 
   // The look scales the head, the eyes, the limbs and the line — the four numbers that
   // separate a neutral figure from a comic one.
-  const headR = height * body.head * look.head / 2;
-  const legLength = height * body.legs;
+  // Age multiplies the body preset. A bigger head and shorter legs almost cancel out in
+  // total height, which is the point: a child is the same figure with the proportions of a
+  // child, and how tall they stand is handled once, by actorHeight().
+  const age = ageOf(actor.age);
+  const headR = height * body.head * look.head * age.head / 2;
+  const legLength = height * body.legs * age.legs;
   const torsoLength = height * body.torso;
-  const limbWidth = height * 0.052 * look.limb;
+  const limbWidth = height * 0.052 * look.limb * age.limb;
   const outline = Math.max(1.5, height * 0.013 * look.inkWeight);
 
   const hipY = -legLength;
@@ -505,8 +843,8 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
         const j = mrLimb(ctx, hipX, hipY, hip, legLength * 0.52, limbWidth + edge, ink);
         mrLimb(ctx, j.x, j.y, hip - knee, legLength * 0.48, limbWidth * 0.9 + edge, ink);
       }
-      const kneeJoint = mrLimb(ctx, hipX, hipY, hip, legLength * 0.52, w(limbWidth), c('bottom'));
-      const foot = mrLimb(ctx, kneeJoint.x, kneeJoint.y, hip - knee, legLength * 0.48, w(limbWidth * 0.9), c('bottom'));
+      const kneeJoint = mrLimb(ctx, hipX, hipY, hip, legLength * 0.52, w(limbWidth), c(legColour));
+      const foot = mrLimb(ctx, kneeJoint.x, kneeJoint.y, hip - knee, legLength * 0.48, w(limbWidth * 0.9), c(legColour));
       mrShoe(ctx, foot.x, foot.y + limbWidth * 0.1, hip - knee, limbWidth + pad, actor.facing, c('shoe'));
     }
 
@@ -584,7 +922,7 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
   // `drop` lowers the whole figure so bent legs still reach the floor.
   ctx.translate(x, groundY - pose.bob * height + (pose.drop || 0) * height);
   if (actor.facing === 'left') ctx.scale(-1, 1);
-  ctx.rotate(-pose.lean * 0.5);
+  ctx.rotate(-(pose.lean + age.stoop) * 0.5);
 
   paint(outline, true);     // ink silhouette
   paint(0, false);          // the character
@@ -597,7 +935,7 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
   const open = Math.max(0.1, expression.eye * (1 - pose.blink));
   const eyeY = headR * 0.16;
   const eyeX = headR * 0.33;
-  const eyeR = headR * 0.19 * look.eye;
+  const eyeR = headR * 0.19 * look.eye * age.eye;
   // Blush first, so the eyes and nose sit on top of it.
   if (look.blush) {
     ctx.fillStyle = 'rgba(214,108,92,0.34)';
@@ -642,7 +980,7 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
     ctx.quadraticCurveTo(turn * 0.7 + headR * 0.11, headR * 0.36, turn * 0.7 - headR * 0.02, headR * 0.38);
     ctx.stroke();
   }
-  mrMouth(ctx, turn * 0.6, headR * (look.nose ? 0.62 : 0.56), headR, expression.mouth, pose.mouthOpen);
+  mrMouth(ctx, turn * 0.6, headR * (look.nose ? 0.62 : 0.56), headR, expression.mouth, pose.mouthOpen, pose.viseme);
   ctx.restore();
   ctx.restore();
 }

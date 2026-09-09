@@ -347,6 +347,7 @@ const MR_DEFAULT_STYLE = {
   motionScale: 1,
   seed: 1,
   look: 'natural',      // how the cast is drawn: natural, comic or storybook
+  period: 'modern',     // when the story happens: dresses the cast and picks the scenery
   panel: false,         // a comic-page border around the frame
   imageHint: ''        // appended to every picture search, e.g. "Mahabharata painting"
 };

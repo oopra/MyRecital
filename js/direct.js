@@ -60,6 +60,81 @@ const MR_ROLE_NOUNS = [
   'thief', 'guard', 'beggar', 'sage', 'monk', 'washerman', 'barber', 'cook', 'shepherd', 'weaver'
 ];
 
+// How old somebody is, read off the words the story uses about them. A history reel is
+// full of children and elders, and drawing them all as thirty-year-olds is the fastest way
+// to make a village look like a staff photograph.
+const MR_AGE_WORDS = [
+  ['child', /\b(child|boy|girl|infant|baby|toddler|little one|schoolboy|schoolgirl|kid)\b/i],
+  ['youth', /\b(youth|young|lad|lass|apprentice|student|maiden|teenager)\b/i],
+  ['elder', /\b(old|elder|aged|ancient|grandmother|grandfather|granny|grandpa|sage|crone|greybeard|widow)\b/i]
+];
+
+// How the story refers to somebody, where it says so at all. This decides nothing about a
+// character on its own — it only filters the wardrobe, so a boy is not put in a saree. When
+// the story does not say, neither do we, and every garment stays one click away.
+const MR_GENDER_WORDS = [
+  ['f', /\b(she|her|hers|woman|girl|queen|princess|mother|sister|daughter|wife|lady|widow|grandmother|maiden|nun)\b/i],
+  ['m', /\b(he|him|his|man|boy|king|prince|father|brother|son|husband|lord|monk|grandfather)\b/i]
+];
+
+// Look at the words around the name, not the whole beat: "the old woman told the boy"
+// has an elder and a child in one sentence, and a window wide enough to hold both of them
+// gives you an old boy.
+// Counted in words and stopped at the nearest punctuation, not in characters: "a young
+// prince named Ashoka" and "even a child may teach a king" are almost the same length,
+// and only one of them is telling you how old the person is.
+function nearName(text, name, wordsBefore, wordsAfter) {
+  const source = String(text || '');
+  const at = source.toLowerCase().indexOf(String(name || '').toLowerCase());
+  if (at < 0) return null;
+  const words = (part) => part.trim().split(/\s+/).filter(Boolean);
+  const before = words(source.slice(0, at).split(/[,;:.!?]/).pop()).slice(-wordsBefore);
+  const after = words(source.slice(at + String(name).length).split(/[,;:.!?]/)[0]).slice(0, wordsAfter);
+  return before.concat([String(name)], after).join(' ');
+}
+
+function genderFor(text, name) {
+  const near = nearName(text, name, 6, 8);
+  if (near == null) return null;
+  for (const [gender, pattern] of MR_GENDER_WORDS) if (pattern.test(near)) return gender;
+  return null;
+}
+
+function genderAcrossStory(project, name) {
+  for (const [gender, pattern] of MR_GENDER_WORDS) if (pattern.test(name)) return gender;
+  const votes = { f: 0, m: 0 };
+  for (const scene of project.scenes) {
+    if (scene.kind === 'title') continue;
+    const gender = genderFor(scene.text || '', name);
+    if (gender) votes[gender]++;
+  }
+  if (votes.f === votes.m) return null;
+  return votes.f > votes.m ? 'f' : 'm';
+}
+
+function ageFor(text, name) {
+  // A beat that does not mention them says nothing about them. Reading the whole beat
+  // instead made everyone in a story containing "the old potter" old. The window is
+  // narrow for the same reason: "even a child may teach a king" must not age the king.
+  const near = nearName(text, name, 3, 2);
+  if (near == null) return null;
+  for (const [age, pattern] of MR_AGE_WORDS) if (pattern.test(near)) return age;
+  return null;
+}
+
+// Whoever the story calls a boy or an old woman IS one, in every scene — age is a fact
+// about a character, not about a beat, so it is read once across the whole reel.
+function ageAcrossStory(project, name) {
+  for (const scene of project.scenes) {
+    if (scene.kind === 'title') continue;
+    const age = ageFor(scene.text || '', name);
+    if (age) return age;
+  }
+  // An unnamed role can carry its own age: "the child", "the sage".
+  for (const [age, pattern] of MR_AGE_WORDS) if (pattern.test(name)) return age;
+  return 'adult';
+}
+
 // The article is what marks a role as a character rather than a passing mention: "the
 // potter looked up" is a person, "he was a potter by trade" mostly is not.
 function rolesInText(text) {
@@ -185,13 +260,18 @@ function speakerFor(text, names) {
 }
 
 // Scenery the words put on the stage, at most two per beat so the frame stays readable.
-function sceneryFor(text) {
+// Monumental places have no single shape — a palace is a fort in one century and a
+// pillared court in another — so the period says which landmark stands in for them.
+const MR_MONUMENT = /\b(palace|temple|fort|castle|citadel|tomb|shrine|court|capital|city|pyramid)\b/i;
+
+function sceneryFor(text, period) {
   const found = [];
+  if (period && period.landmark && MR_MONUMENT.test(text)) found.push(period.landmark);
   for (const [kind, pattern] of MR_SCENERY_NOUNS) {
-    if (pattern.test(text)) found.push(kind);
+    if (found.indexOf(kind) < 0 && pattern.test(text)) found.push(kind);
     if (found.length >= 2) break;
   }
-  return found;
+  return found.slice(0, 2);
 }
 
 // ---------------------------------------------------------------- blocking
@@ -221,6 +301,9 @@ function blockingFor(count) {
 const MR_SCENERY_PLACES = {
   tree: { x: 0.87, y: 0.88, scale: 0.42, layer: 'back', tint: '#2f7a45' },
   house: { x: 0.15, y: 0.86, scale: 0.34, layer: 'back', tint: '#a08765' },
+  pyramid: { x: 0.2, y: 0.78, scale: 0.34, layer: 'back', tint: '#d8bd82' },
+  tower: { x: 0.16, y: 0.84, scale: 0.4, layer: 'back', tint: '#8f8a80' },
+  column: { x: 0.12, y: 0.9, scale: 0.44, layer: 'back', tint: '#e8e0cc' },
   mountain: { x: 0.26, y: 0.7, scale: 0.32, layer: 'back', tint: '#5c6f82' },
   cloud: { x: 0.72, y: 0.28, scale: 0.16, layer: 'back', tint: '#cfd8e3' },
   well: { x: 0.2, y: 0.92, scale: 0.2, layer: 'stage', tint: '#8a7a63' },
@@ -240,8 +323,9 @@ const MR_SCENERY_PLACES = {
 // Stage one beat. `carried` is the cast of the previous scene, used when a beat names
 // nobody — a story does not re-introduce its people in every sentence, and an empty stage
 // mid-conversation looks like a mistake.
-function directScene(scene, cast, carried, project, slots) {
+function directScene(scene, cast, carried, project, slots, ages, genders) {
   if (scene.kind === 'title') return { actors: [], props: [] };
+  const period = typeof projectPeriod === 'function' ? projectPeriod(project) : null;
   const text = scene.text || '';
   const named = namesInBeat(text, cast);
   // Whoever was on stage stays on stage unless the story moves somewhere else: a
@@ -272,6 +356,7 @@ function directScene(scene, cast, carried, project, slots) {
     const action = named.indexOf(name) >= 0 ? actionFor(text, name) : 'idle';
     const isSpeaker = speaker === name;
     const actor = makeActor(name, Object.assign({}, appearanceFor(name), {
+      age: (ages && ages.get(name)) || 'adult',
       speaker: isSpeaker,
       start: {
         x: spot.x, y: 0.88, scale: spot.scale, facing: spot.facing,
@@ -293,7 +378,15 @@ function directScene(scene, cast, carried, project, slots) {
     return actor;
   });
 
-  const props = sceneryFor(text).map((kind) => {
+  // Everyone is dressed for the era before they are staged, so the reel is never briefly
+  // a set of moderns standing in ancient Egypt.
+  if (period && typeof dressActorForPeriod === 'function') {
+    for (const actor of actors) {
+      dressActorForPeriod(actor, period, { gender: genders && genders.get(actor.name) });
+    }
+  }
+
+  const props = sceneryFor(text, period).map((kind) => {
     const place = MR_SCENERY_PLACES[kind] || MR_SCENERY_PLACES.tree;
     return makeProp(kind, {
       tint: place.tint, layer: place.layer,
@@ -301,7 +394,6 @@ function directScene(scene, cast, carried, project, slots) {
     });
   });
 
-  void project;
   return { actors, props, speaker };
 }
 
@@ -310,12 +402,16 @@ function directScene(scene, cast, carried, project, slots) {
 function directProject(project, opts) {
   const o = opts || {};
   const cast = castFromStory(project, o.castLimit || 5);
+  // Age is decided once for the whole reel, from every mention of the character: a boy in
+  // the first beat is still a boy in the last one.
+  const ages = new Map(cast.map((name) => [name, ageAcrossStory(project, name)]));
+  const genders = new Map(cast.map((name) => [name, genderAcrossStory(project, name)]));
   const slots = new Map();
   let carried = [];
   let staged = 0, spoken = 0, propped = 0;
 
   for (const scene of project.scenes) {
-    const result = directScene(scene, cast, carried, project, slots);
+    const result = directScene(scene, cast, carried, project, slots, ages, genders);
     if (!result.actors.length && !result.props.length) continue;
     scene.stage = makeStage({ actors: result.actors, props: result.props });
     if (result.actors.length) {
@@ -332,5 +428,6 @@ function directProject(project, opts) {
     if (scene.motion === 'shake' || scene.motion === 'push') scene.motion = 'drift';
     scene.intensity = Math.min(scene.intensity, 0.55);
   }
-  return { cast, staged, spoken, propped };
+  const period = typeof projectPeriod === 'function' ? projectPeriod(project) : null;
+  return { cast, staged, spoken, propped, ages, period: period && period.name };
 }
