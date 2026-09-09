@@ -21,12 +21,16 @@
 
 // Voice colours. Each is a waveform and a filter: the wave is the buzz of the voice, the
 // filter is the mouth it is coming out of.
+// `wave`, `formant`, `q`, `noise` and `vibrato` are the syllable voice. `tilt`, `breath`
+// and `jitter` are the word voice: how fast the glottal harmonics fall away (dark or
+// pressed), how much air is in the tone, and how steady the pitch is. Those three are what
+// separate one person from another far more than the formants do.
 const MR_TIMBRES = {
-  warm:   { name: 'Warm',   wave: 'triangle', formant: 1,    q: 4, noise: 0.22, vibrato: 0.02 },
-  bright: { name: 'Bright', wave: 'square',   formant: 1.18, q: 6, noise: 0.18, vibrato: 0.035 },
-  reedy:  { name: 'Reedy',  wave: 'sawtooth', formant: 1.05, q: 8, noise: 0.3,  vibrato: 0.025 },
-  soft:   { name: 'Soft',   wave: 'triangle', formant: 0.94, q: 3, noise: 0.12, vibrato: 0.015 },
-  gruff:  { name: 'Gruff',  wave: 'sawtooth', formant: 0.82, q: 5, noise: 0.4,  vibrato: 0.01 }
+  warm:   { name: 'Warm',   wave: 'triangle', formant: 1,    q: 4, noise: 0.22, vibrato: 0.02,  tilt: 0.5,  breath: 0.1,  jitter: 0.008 },
+  bright: { name: 'Bright', wave: 'square',   formant: 1.18, q: 6, noise: 0.18, vibrato: 0.035, tilt: 0.25, breath: 0.07, jitter: 0.011 },
+  reedy:  { name: 'Reedy',  wave: 'sawtooth', formant: 1.05, q: 8, noise: 0.3,  vibrato: 0.025, tilt: 0.18, breath: 0.09, jitter: 0.013 },
+  soft:   { name: 'Soft',   wave: 'triangle', formant: 0.94, q: 3, noise: 0.12, vibrato: 0.015, tilt: 0.72, breath: 0.18, jitter: 0.006 },
+  gruff:  { name: 'Gruff',  wave: 'sawtooth', formant: 0.82, q: 5, noise: 0.4,  vibrato: 0.01,  tilt: 0.62, breath: 0.22, jitter: 0.018 }
 };
 
 const MR_TIMBRE_KEYS = Object.keys(MR_TIMBRES);

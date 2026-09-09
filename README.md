@@ -477,9 +477,16 @@ synthesiser has had since the 1970s:
    before them, which is the giveaway when a synthesiser gets it wrong: *walked* ends in a
    t, *feared* in a d, *wanted* grows a syllable; *cats* hisses where *dogs* buzzes.
 2. **Sounds to sound.** A vowel is three resonances — the shape of the mouth making it — so
-   speech here is a glottal buzz and a hiss pushed through three tracking filters, with
-   silence-then-burst for the stops and formants that *glide* between neighbours, because
+   speech here is a glottal buzz and a breath of noise pushed through a cascade of four
+   tracking resonators, with a separate hiss for the sounds made of air alone,
+   silence-then-burst for the stops, and formants that *glide* between neighbours, because
    those transitions are how a listener tells a /d/ from a /g/.
+3. **Prosody**, which is where most of "robotic" actually lives. English is stress-timed:
+   the stressed syllable of a word is longer, louder and higher, an unstressed one collapses
+   towards a schwa, and function words — *the, a, of, was* — carry no stress at all. Pitch
+   drifts down across a phrase, lifts on each stressed syllable, falls away at a full stop
+   and climbs at a question mark, and *glides* between those targets rather than stepping.
+   A comma is a shorter pause than a full stop, and the sound before either one stretches.
 
 **It sounds like a robot.** It is a robot: three formants and a pulse train in a browser
 tab. But it says the words, it costs nothing, it works offline, and — unlike the browser's
@@ -487,11 +494,22 @@ own `speechSynthesis`, which cannot be captured — it is Web Audio all the way,
 into the recording instead of playing only for whoever is at the machine. For a studio
 voice, record narration with a TTS key; the two paths share everything else.
 
-Two numbers that had to be measured rather than guessed. The resonator Q is lower than a
-textbook suggests, because a deep voice has its harmonics far apart and a sharp resonator
-sitting between two of them passes nothing — the first version had a loud child and an
-inaudible old man. And the output level is compensated by pitch for the same reason, so a
-child and an old man saying the same line come out the same loudness.
+Three things here had to be measured rather than reasoned about, and each was wrong the
+first time:
+
+- **A cascade of resonators must be a cascade of boosts, not of bands.** Four band-pass
+  filters in series multiply their own skirts: almost nothing survives but the lowest
+  formant, and the voice comes out as a hum with no vowels in it. Peaking filters lift each
+  resonance and leave the rest of the spectrum alone, which is what a real tract does.
+- **Formant bandwidth widens with frequency**, so the higher resonances are broader, not
+  sharper. Backwards, that is precisely the hollow ring that says "computer".
+- **Level has to be compensated by pitch.** A high voice pushes far more energy through the
+  same filters, so without it a child is twice as loud as an old man saying the same line.
+  The exponent was fitted by recording all three and measuring, not by algebra.
+
+What a voice sounds *like* is mostly three numbers, and none of them is a formant: how fast
+the glottal harmonics fall away (dark and soft, or bright and pressed), how much breath is
+mixed into the tone, and how steady the pitch is. Those are what the five timbres set.
 
 The lip sync gets better as a side effect: mouth shapes now come from the phonemes, which
 is where they always wanted to come from. /m/ closes the lips because it *is* closed lips,
@@ -548,10 +566,11 @@ press play — "7 crackles, 5 footsteps, 2 birds, 1 scene of wind."
   guessing game — but expect that first run to be where a shape problem shows up.
 - **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
   outlines — closer to an explainer-video cast than to Pixar.
-- **The synthesiser sounds like a 1980s speech chip.** It says the words and you can
-  follow them, especially with the captions on screen; it will not be mistaken for a person.
-  Unstressed vowels are not reduced, stress is not modelled at all, and an unusual proper
-  noun will be pronounced the way it is spelled. For a studio voice, use the TTS path.
+- **The synthesiser is a synthesiser.** It says the words, with stress, breath and a real
+  intonation contour, and you can follow it — but it will not be mistaken for a person.
+  Stress is guessed from the shape of the word, not looked up, so long or unusual words land
+  it on the wrong syllable; there is no rhythm above the phrase; and an unfamiliar proper
+  noun is pronounced the way it is spelled. For a studio voice, use the TTS path.
 - **Its dictionary is short.** A few hundred irregular words, plus rules for the rest. A
   word the rules get wrong stays wrong until it is added — there is no way to correct a
   pronunciation in the interface yet.

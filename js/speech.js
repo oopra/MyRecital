@@ -297,55 +297,157 @@ function mrInflect(last, suffix, fallback) {
   return fallback.split(' ');
 }
 
-// A whole line to phonemes, with the pauses punctuation asks for.
-function phonemesFor(text) {
+// ---------------------------------------------------------------- stress
+//
+// English is stress-timed: a stressed syllable is longer, louder and higher, and an
+// unstressed one collapses towards a schwa. Give every syllable equal weight and you get
+// the flat machine-gun delivery that is most of what people mean by "robotic" — more of it
+// than the timbre is.
+
+const MR_VOWEL_SET = new Set(['AA', 'AE', 'AH', 'AO', 'AW', 'AX', 'AY', 'EH', 'ER',
+  'EY', 'IH', 'IY', 'OW', 'OY', 'UH', 'UW']);
+
+// Words that carry no stress of their own in a sentence. Reducing them is what makes the
+// words around them stand out, which is how a listener finds the meaning.
+const MR_FUNCTION_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in',
+  'on', 'at', 'for', 'from', 'with', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'am',
+  'do', 'does', 'did', 'has', 'have', 'had', 'he', 'she', 'it', 'they', 'we', 'you', 'him',
+  'her', 'them', 'us', 'my', 'your', 'his', 'its', 'their', 'our', 'that', 'this', 'these',
+  'those', 'there', 'then', 'than', 'so', 'if', 'by', 'into', 'upon', 'over', 'under',
+  'all', 'which']);
+
+// Prefixes that are never the stressed syllable: beside, again, return, unless.
+const MR_UNSTRESSED_PREFIX = /^(a|be|re|in|un|de|ex|con|com|ad|em|en|pro|per|sur)/;
+
+// Which vowel in a word takes the stress. Rough, and rough is enough: the difference
+// between the right syllable and any syllable is enormous, the difference between the
+// right syllable and the second-best is small.
+function mrStressIndex(word, phonemes) {
+  const vowels = [];
+  phonemes.forEach((p, i) => { if (MR_VOWEL_SET.has(p)) vowels.push(i); });
+  if (!vowels.length) return -1;
+  if (MR_FUNCTION_WORDS.has(word)) return -1;
+  if (vowels.length === 1) return vowels[0];
+  // The endings that pull the stress back onto the syllable before them.
+  if (/(tion|sion|ity|ical|ially|ic|ian)$/.test(word)) return vowels[vowels.length - 2];
+  if (MR_UNSTRESSED_PREFIX.test(word)) return vowels[1];
+  return vowels[0];
+}
+
+// A whole line to phonemes, each carrying whether it is stressed, and with the pauses
+// punctuation asks for — a comma is not the same length as a full stop.
+function phonemeTokens(text) {
   const out = [];
-  const words = String(text || '').split(/(\s+|[,;:.!?—-]+)/);
-  for (const chunk of words) {
+  const parts = String(text || '').split(/(\s+|[,;:.!?—-]+)/);
+  for (const chunk of parts) {
     if (!chunk || /^\s+$/.test(chunk)) continue;
     if (/^[,;:.!?—-]+$/.test(chunk)) {
-      if (out[out.length - 1] !== '_') out.push('_');
+      const pause = /[.!?]/.test(chunk) ? 0.34 : 0.18;
+      const last = out[out.length - 1];
+      if (last && last.p === '_') last.pause = Math.max(last.pause, pause);
+      else out.push({ p: '_', pause, stress: 0 });
       continue;
     }
     const sounds = phonemesForWord(chunk);
     if (!sounds.length) continue;
-    if (out.length && out[out.length - 1] !== '_') out.push('_');
-    out.push(...sounds);
+    if (out.length && out[out.length - 1].p !== '_') out.push({ p: '_', pause: 0.055, stress: 0 });
+    const word = String(chunk).toLowerCase().replace(/[^a-z']/g, '');
+    const stressAt = mrStressIndex(word, sounds);
+    sounds.forEach((p, i) => out.push({
+      p, word,
+      // 1 stressed, -1 an unstressed vowel to be reduced, 0 everything else.
+      stress: i === stressAt ? 1 : (MR_VOWEL_SET.has(p) ? -1 : 0)
+    }));
   }
   return out;
+}
+
+function phonemesFor(text) {
+  return phonemeTokens(text).map((token) => token.p);
 }
 
 // ---------------------------------------------------------------- sounds to sound
 
 // The phoneme list as a plan: what to do, for how long, at what pitch. Kept separate from
 // the audio graph so it can be tested, and so the mouth can be driven from the same plan.
+// The formants of a completely relaxed mouth. Everything unstressed slides towards it.
+const MR_SCHWA_F = [500, 1400, 2400];
+
+function mrTowardsSchwa(f, amount) {
+  return [0, 1, 2].map((i) => f[i] + (MR_SCHWA_F[i] - f[i]) * amount);
+}
+
 function speechPlan(text, opts) {
   const o = opts || {};
   const rate = o.rate || 1;
-  const phonemes = o.phonemes || phonemesFor(text);
+  const tokens = o.tokens || phonemeTokens(text);
   const question = /\?\s*$/.test(String(text || ''));
   const plan = [];
   let at = 0;
 
-  phonemes.forEach((name, i) => {
-    const spec = MR_PHONEMES[name];
+  tokens.forEach((token, i) => {
+    const spec = MR_PHONEMES[token.p];
     if (!spec) return;
-    // A syllable at the end of a phrase is longer, which is most of what makes speech
-    // sound like phrases rather than like a list of words.
-    const last = i >= phonemes.length - 2;
-    const seconds = (spec.dur / 1000) * (last ? 1.25 : 1) / rate;
-    plan.push({ phoneme: name, type: spec.type, at, dur: seconds, spec });
-    at += seconds;
+    if (spec.type === 'silence') {
+      const seconds = (token.pause || 0.06) / rate;
+      plan.push({ phoneme: '_', type: 'silence', at, dur: seconds, spec, stress: 0, amp: 0 });
+      at += seconds;
+      return;
+    }
+
+    let f = spec.f;
+    let to = spec.to;
+    let amp = spec.amp != null ? spec.amp : 1;
+    let seconds = spec.dur / 1000;
+
+    if (spec.type === 'vowel') {
+      if (token.stress < 0) {
+        // Reduction. An unstressed vowel in English is shorter, quieter and closer to a
+        // schwa than the dictionary says — "a long way" is not ay long way.
+        seconds *= 0.62;
+        amp *= 0.82;
+        f = mrTowardsSchwa(f, 0.45);
+        if (to) to = mrTowardsSchwa(to, 0.45);
+      } else if (token.stress > 0) {
+        seconds *= 1.18;
+        amp *= 1.12;
+      }
+    }
+    // A sound at the end of a phrase stretches. Speech slows into a pause; a synthesiser
+    // that does not is the one that sounds like it is reading a list.
+    const next = tokens[i + 1];
+    if (!next || next.p === '_') seconds *= next && next.pause > 0.2 ? 1.3 : 1.12;
+
+    plan.push({ phoneme: token.p, type: spec.type, at, dur: seconds / rate, spec, f, to, amp, stress: token.stress });
+    at += seconds / rate;
   });
 
-  // Intonation: down across a statement, up at the end of a question. Applied to the plan
-  // rather than to the graph so a test can read it.
-  const total = at || 1;
-  for (const step of plan) {
-    const progress = step.at / total;
-    step.pitch = question ? 1 + progress * 0.3 : 1.06 - progress * 0.22;
-  }
-  return { steps: plan, seconds: at, phonemes };
+  // Intonation. Three things at once, which is roughly what a speaker does: the pitch
+  // drifts down across the whole phrase (declination), rises on each stressed syllable
+  // (accent), and falls away at the end — or climbs, if it is a question.
+  // Measured across the SPEECH, not across the clip: a long pause at the end of a question
+  // would otherwise push every syllable's progress down and swallow the rise.
+  let spoken = 0;
+  for (const step of plan) if (step.type !== 'silence') spoken = step.at + step.dur;
+  const total = spoken || at || 1;
+  plan.forEach((step, i) => {
+    const progress = Math.min(1, step.at / total);
+    let pitch = 1.05 - progress * 0.17;
+    if (step.stress > 0) pitch *= 1.09;
+    else if (step.stress < 0) pitch *= 0.98;
+    if (progress > 0.8) pitch *= question ? 1 + (progress - 0.8) * 1.5 : 1 - (progress - 0.8) * 0.8;
+    step.pitch = pitch;
+    void i;
+  });
+  // Where the pitch is heading, so the voice can glide between targets instead of stepping
+  // between them. A stair of held pitches is the single most robotic thing a synthesiser
+  // can do, and it is the one nobody notices they are doing.
+  plan.forEach((step, i) => {
+    const next = plan[i + 1];
+    step.pitchTo = next ? next.pitch : step.pitch * (question ? 1.06 : 0.93);
+  });
+
+  return { steps: plan, seconds: at, phonemes: tokens.map((t) => t.p), tokens };
 }
 
 // How long a line takes to say, for laying lines out before any of them is scheduled.
@@ -361,11 +463,11 @@ function mouthFromPlan(plan, into) {
   for (const step of plan.steps) {
     if (into < step.at || into > step.at + step.dur) continue;
     const viseme = MR_PHONEME_VISEME[step.phoneme] || 'UH';
-    const spec = step.spec;
+    // A reduced vowel is a smaller mouth as well as a shorter one.
     const open = step.type === 'silence' ? 0
-      : step.type === 'vowel' ? 1
+      : step.type === 'vowel' ? (step.stress < 0 ? 0.7 : 1)
         : step.type === 'stop' ? 0.25
-          : spec.amp != null ? Math.min(1, spec.amp + 0.15) : 0.5;
+          : step.amp != null ? Math.min(1, step.amp + 0.15) : 0.5;
     return { open, viseme };
   }
   return { open: 0, viseme: 'rest' };
@@ -373,22 +475,31 @@ function mouthFromPlan(plan, into) {
 
 // ---------------------------------------------------------------- the voice
 
-// A glottal pulse: harmonics falling at about 12 dB per octave, which is what a voice
-// actually does. A plain sawtooth is close but buzzier, and this costs one array.
-let mrGlottalWave = null;
-function mrGlottal(ctx) {
-  if (mrGlottalWave && mrGlottalWave.ctx === ctx) return mrGlottalWave.wave;
-  const size = 30;
+// The source: a glottal pulse, not a sawtooth. `tilt` is voice quality — how fast the
+// harmonics fall away. A low tilt is a bright, pressed voice; a high one is soft and dark.
+// This one number does more for how a person sounds than the formants do.
+const mrGlottalWaves = new Map();
+function mrGlottal(ctx, tilt) {
+  const key = Math.round(tilt * 10) / 10;
+  const cached = mrGlottalWaves.get(key);
+  if (cached && cached.ctx === ctx) return cached.wave;
+  const size = 40;
   const real = new Float32Array(size);
   const imag = new Float32Array(size);
-  for (let n = 1; n < size; n++) imag[n] = 1 / (n * n * 0.6 + n * 0.4);
+  const fall = 1 + key * 1.7;
+  for (let n = 1; n < size; n++) imag[n] = 1 / Math.pow(n, fall);
   const wave = ctx.createPeriodicWave(real, imag, { disableNormalization: false });
-  mrGlottalWave = { ctx, wave };
+  mrGlottalWaves.set(key, { ctx, wave });
   return wave;
 }
 
-// Speak one line. Three tracking resonators fed by a buzz and a hiss: the buzz is the
-// vocal folds, the hiss is everything made with air, and the resonators are the mouth.
+// Formant bandwidths widen with frequency in a real mouth, and Q is frequency over
+// bandwidth — so the higher resonators are not sharper, they are broader. Getting this
+// backwards is what gives cheap synthesis its hollow, ringing quality.
+const MR_FORMANT_BW = [80, 110, 170, 250];
+
+// Speak one line. A glottal buzz and a breath of noise through a cascade of four
+// resonators — the mouth — with a separate hiss path for the sounds made with air alone.
 // Everything is scheduled up front, like the score, so playback and recording agree.
 function mrSpeakWords(text, at, profile, rate, gainValue) {
   const ctx = mrAudio.ctx;
@@ -396,22 +507,40 @@ function mrSpeakWords(text, at, profile, rate, gainValue) {
   const plan = speechPlan(text, { rate });
   if (!plan.steps.length) return 0;
 
+  const timbre = (typeof MR_TIMBRES !== 'undefined' && MR_TIMBRES[profile.timbre]) || {};
+  const tilt = timbre.tilt != null ? timbre.tilt : 0.45;
+  const breath = timbre.breath != null ? timbre.breath : 0.12;
+  const jitter = timbre.jitter != null ? timbre.jitter : 0.01;
+
+  const pitchHz = mrMidiToHz(profile.pitch || 52);
   // A voice's pitch also scales its formants: a small head makes a small mouth, and a
   // child whose formants stayed where an adult's are sounds like an adult on helium.
-  const pitchHz = mrMidiToHz(profile.pitch || 52);
-  const size = Math.pow(2, (52 - (profile.pitch || 52)) / 34);   // taller voice, longer tract
+  const size = Math.pow(2, (52 - (profile.pitch || 52)) / 34);
   // High voices push far more energy through the resonators than low ones, so the level is
   // compensated by pitch. Without this a child is twice as loud as an old man saying the
   // same line, and every reel with both in it needs mixing by hand.
-  const level = (gainValue == null ? 1 : gainValue) * 0.55 * Math.pow(2, (52 - (profile.pitch || 52)) / 40);
-  const end = at + plan.seconds + 0.08;
+  const level = (gainValue == null ? 1 : gainValue) * 0.22 * Math.pow(2, (52 - (profile.pitch || 52)) / 9);
+  const end = at + plan.seconds + 0.1;
+  // Seeded from the words, so a line sounds the same every time it is played and different
+  // from the line beside it.
+  const random = typeof mrRandom === 'function' ? mrRandom(mrVoiceHash(text) % 9973) : Math.random;
 
   const buzz = ctx.createOscillator();
-  buzz.setPeriodicWave(mrGlottal(ctx));
+  buzz.setPeriodicWave(mrGlottal(ctx, tilt));
   const buzzGain = ctx.createGain();
   buzzGain.gain.value = 0;
   buzz.connect(buzzGain);
 
+  // Breath: a little noise through the same mouth, always, while the voice is sounding.
+  // A voice with no breath in it at all is the sound of a synthesiser.
+  const aspirate = ctx.createBufferSource();
+  aspirate.buffer = mrSfxNoise();
+  aspirate.loop = true;
+  const aspGain = ctx.createGain();
+  aspGain.gain.value = 0;
+  aspirate.connect(aspGain);
+
+  // The hiss path, for the sounds that are nothing but air: s, sh, f, and the bursts.
   const hiss = ctx.createBufferSource();
   hiss.buffer = mrSfxNoise();
   hiss.loop = true;
@@ -427,21 +556,32 @@ function mrSpeakWords(text, at, profile, rate, gainValue) {
   out.gain.value = level;
   out.connect(mrAudio.voice);
 
-  // Three resonators in parallel, mixed: the standard cheap vocal tract. The Q is lower
-  // than a textbook would suggest on purpose. A deep voice has its harmonics far apart, and
-  // a sharp resonator sitting between two of them passes almost nothing — which is how the
-  // first version of this ended up with a loud child and an inaudible old man.
-  const formants = [0, 1, 2].map((n) => {
+  // The tract, as a cascade of BOOSTS rather than of bands. This is the one place the
+  // textbook diagram has to be read carefully: a cascade of band-pass filters multiplies
+  // its own skirts, so four of them in series pass almost nothing but the lowest formant,
+  // and the voice comes out as a hum with no vowels in it. Peaking filters lift each
+  // resonance and leave the rest of the spectrum — including the fundamental — alone,
+  // which is what a real tract does to the sound going through it.
+  const formants = [0, 1, 2, 3].map((n) => {
     const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.Q.value = n === 0 ? 5 : n === 1 ? 6.5 : 8;
-    const gain = ctx.createGain();
-    gain.gain.value = n === 0 ? 1 : n === 1 ? 0.7 : 0.4;
-    buzzGain.connect(filter);
-    filter.connect(gain);
-    gain.connect(out);
+    filter.type = 'peaking';
+    filter.gain.value = n === 0 ? 17 : n === 1 ? 16 : n === 2 ? 11 : 7;
+    filter.Q.value = 3;
     return filter;
   });
+  for (let n = 0; n < formants.length - 1; n++) formants[n].connect(formants[n + 1]);
+  // The mouth is not a bright loudspeaker: everything above the formants falls away.
+  const lips = ctx.createBiquadFilter();
+  lips.type = 'lowpass';
+  lips.frequency.value = 5200;
+  lips.Q.value = 0.6;
+  const tract = ctx.createGain();
+  tract.gain.value = 0.9;
+  formants[formants.length - 1].connect(lips);
+  lips.connect(tract);
+  tract.connect(out);
+  buzzGain.connect(formants[0]);
+  aspGain.connect(formants[0]);
 
   // The voice bar: the fundamental and its first harmonics, straight through. It carries no
   // vowel information at all — it is there so every voice has a body and a pitch you can
@@ -450,7 +590,7 @@ function mrSpeakWords(text, at, profile, rate, gainValue) {
   bar.type = 'lowpass';
   bar.frequency.value = Math.max(220, pitchHz * 2.4);
   const barGain = ctx.createGain();
-  barGain.gain.value = 0.6;
+  barGain.gain.value = 0.3;
   buzzGain.connect(bar); bar.connect(barGain); barGain.connect(out);
 
   hissGain.connect(out);
@@ -460,7 +600,14 @@ function mrSpeakWords(text, at, profile, rate, gainValue) {
       const hz = Math.max(120, target[n] * size);
       if (glide) formants[n].frequency.linearRampToValueAtTime(hz, time);
       else formants[n].frequency.setValueAtTime(hz, time);
+      // Bandwidth widens with frequency in a real mouth, and Q is frequency over
+      // bandwidth — so the higher resonances are broader, not sharper. Backwards, this is
+      // exactly the hollow ring that says "computer".
+      formants[n].Q.setValueAtTime(Math.max(1.2, hz / MR_FORMANT_BW[n] * 0.5), time);
     }
+    const f4 = 3400 * size;
+    formants[3].frequency.setValueAtTime(f4, time);
+    formants[3].Q.setValueAtTime(Math.max(1.2, f4 / MR_FORMANT_BW[3] * 0.5), time);
   };
 
   let previous = null;
@@ -468,40 +615,55 @@ function mrSpeakWords(text, at, profile, rate, gainValue) {
     const start = at + step.at;
     const stop = start + step.dur;
     const spec = step.spec;
-    buzz.frequency.setValueAtTime(pitchHz * step.pitch, start);
+
+    // Pitch glides to the next target across the sound, with a little jitter on the way.
+    // Speech is never on a steady note; a voice that is reads as a machine within a word.
+    const wobble = 1 + (random() - 0.5) * jitter * 2;
+    buzz.frequency.setValueAtTime(pitchHz * step.pitch * wobble, start);
+    if (step.dur > 0.01) {
+      buzz.frequency.linearRampToValueAtTime(pitchHz * step.pitchTo * (1 + (random() - 0.5) * jitter), stop);
+    }
 
     if (step.type === 'silence') {
-      buzzGain.gain.setTargetAtTime(0.0001, start, 0.01);
-      hissGain.gain.setTargetAtTime(0.0001, start, 0.01);
+      buzzGain.gain.setTargetAtTime(0.0001, start, 0.012);
+      aspGain.gain.setTargetAtTime(0.0001, start, 0.012);
+      hissGain.gain.setTargetAtTime(0.0001, start, 0.012);
       previous = null;
       continue;
     }
 
     if (step.type === 'vowel' || step.type === 'nasal' || step.type === 'liquid') {
-      const amp = (spec.amp != null ? spec.amp : 1) * 0.9;
+      // Shimmer: syllables are not all exactly as loud as each other either.
+      const amp = (step.amp != null ? step.amp : 1) * 0.9 * (1 + (random() - 0.5) * 0.12);
       // Formants glide from wherever the last sound left them: those transitions are how
       // a listener tells a /d/ from a /g/, so they matter more than the steady parts.
-      if (previous) setTargets(start + Math.min(0.045, step.dur * 0.4), spec.f, true);
-      else setTargets(start, spec.f, false);
-      if (spec.to) setTargets(stop, spec.to, true);          // a diphthong glides on
-      buzzGain.gain.setTargetAtTime(amp, start, 0.012);
+      if (previous) setTargets(start + Math.min(0.05, step.dur * 0.45), step.f, true);
+      else setTargets(start, step.f, false);
+      if (step.to) setTargets(stop, step.to, true);          // a diphthong glides on
+      // A syllable swells and falls away rather than switching on: the attack is fast, the
+      // release is slower, and neither is instant.
+      buzzGain.gain.setTargetAtTime(amp, start, Math.max(0.008, step.dur * 0.14));
+      buzzGain.gain.setTargetAtTime(amp * 0.72, start + step.dur * 0.7, 0.05);
+      aspGain.gain.setTargetAtTime(amp * breath, start, 0.02);
       hissGain.gain.setTargetAtTime(0.0001, start, 0.02);
-      previous = spec.to || spec.f;
+      previous = step.to || step.f;
       continue;
     }
 
     if (step.type === 'fric') {
       hissBand.frequency.setValueAtTime(spec.band[0] * (size * 0.5 + 0.5), start);
       hissBand.Q.setValueAtTime(spec.band[1], start);
-      hissGain.gain.setTargetAtTime(spec.amp * 0.5, start, 0.01);
-      buzzGain.gain.setTargetAtTime(spec.voiced ? 0.25 : 0.0001, start, 0.012);
+      hissGain.gain.setTargetAtTime(spec.amp * 0.5, start, 0.012);
+      buzzGain.gain.setTargetAtTime(spec.voiced ? 0.28 : 0.0001, start, 0.014);
+      aspGain.gain.setTargetAtTime(0.0001, start, 0.02);
       continue;
     }
 
     if (step.type === 'stop') {
       // Silence, then the burst. The silence is the sound.
       const hold = Math.min(spec.hold / 1000, step.dur * 0.6);
-      buzzGain.gain.setTargetAtTime(spec.voiced ? 0.08 : 0.0001, start, 0.008);
+      buzzGain.gain.setTargetAtTime(spec.voiced ? 0.1 : 0.0001, start, 0.008);
+      aspGain.gain.setTargetAtTime(0.0001, start, 0.01);
       hissGain.gain.setTargetAtTime(0.0001, start, 0.008);
       const burstAt = start + hold;
       hissBand.frequency.setValueAtTime(spec.burst[0] * (size * 0.5 + 0.5), burstAt);
@@ -519,10 +681,12 @@ function mrSpeakWords(text, at, profile, rate, gainValue) {
     }
   }
 
-  buzzGain.gain.setTargetAtTime(0.0001, at + plan.seconds, 0.02);
+  buzzGain.gain.setTargetAtTime(0.0001, at + plan.seconds, 0.025);
+  aspGain.gain.setTargetAtTime(0.0001, at + plan.seconds, 0.025);
   hissGain.gain.setTargetAtTime(0.0001, at + plan.seconds, 0.02);
   buzz.start(at); buzz.stop(end);
+  aspirate.start(at); aspirate.stop(end);
   hiss.start(at); hiss.stop(end);
-  mrAudio.nodes.push(buzz, hiss);
+  mrAudio.nodes.push(buzz, aspirate, hiss);
   return plan.seconds;
 }

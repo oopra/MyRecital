@@ -2562,6 +2562,104 @@ test('a spoken line is a plan of sounds, and the mouth comes off the same plan',
   assert.ok(q.steps[q.steps.length - 1].pitch > q.steps[0].pitch, 'and a question rises');
 });
 
+test('stressed and unstressed syllables are not the same syllable', async () => {
+  const r = await ev(() => {
+    const plan = speechPlan('A traveller walked along the river.', { rate: 1 });
+    const vowels = plan.steps.filter((step) => step.type === 'vowel');
+    const stressed = vowels.filter((step) => step.stress > 0);
+    const reduced = vowels.filter((step) => step.stress < 0);
+    const schwaDistance = (step) => Math.abs(step.f[0] - 500) + Math.abs(step.f[1] - 1400);
+    const tokens = phonemeTokens('The old man walked.');
+    return {
+      stressedCount: stressed.length,
+      reducedCount: reduced.length,
+      stressedDur: stressed.reduce((sum, s) => sum + s.dur, 0) / (stressed.length || 1),
+      reducedDur: reduced.reduce((sum, s) => sum + s.dur, 0) / (reduced.length || 1),
+      stressedAmp: stressed.reduce((sum, s) => sum + s.amp, 0) / (stressed.length || 1),
+      reducedAmp: reduced.reduce((sum, s) => sum + s.amp, 0) / (reduced.length || 1),
+      stressedSchwa: stressed.reduce((sum, s) => sum + schwaDistance(s), 0) / (stressed.length || 1),
+      reducedSchwa: reduced.reduce((sum, s) => sum + schwaDistance(s), 0) / (reduced.length || 1),
+      theIsReduced: tokens.filter((t) => t.word === 'the' && t.p !== '_').every((t) => t.stress <= 0),
+      manIsStressed: tokens.some((t) => t.word === 'man' && t.stress > 0)
+    };
+  });
+  assert.ok(r.stressedCount >= 3 && r.reducedCount >= 2, 'the line has both kinds of syllable');
+  assert.ok(r.stressedDur > r.reducedDur * 1.4,
+    `a stressed syllable is longer (${r.stressedDur.toFixed(3)}s vs ${r.reducedDur.toFixed(3)}s)`);
+  assert.ok(r.stressedAmp > r.reducedAmp, 'and louder');
+  assert.ok(r.reducedSchwa < r.stressedSchwa * 0.8,
+    `and an unstressed one collapses towards a schwa (${Math.round(r.reducedSchwa)} vs ${Math.round(r.stressedSchwa)})`);
+  assert.equal(r.theIsReduced, true, 'a function word carries no stress of its own');
+  assert.equal(r.manIsStressed, true, 'and the word that matters does');
+});
+
+test('the pitch moves the way a speaking voice moves', async () => {
+  const r = await ev(() => {
+    const plan = speechPlan('The old sage waited at the temple.', { rate: 1 });
+    const pitches = plan.steps.map((step) => step.pitch);
+    const glides = plan.steps.filter((step) => Math.abs(step.pitchTo - step.pitch) > 0.001).length;
+    const accents = plan.steps.filter((step) => step.stress > 0);
+    const around = plan.steps.filter((step) => step.type === 'vowel' && step.stress <= 0);
+    const comma = speechPlan('Yes, he said.', { rate: 1 }).steps.filter((s) => s.type === 'silence');
+    return {
+      spread: Math.max(...pitches) - Math.min(...pitches),
+      falls: pitches[0] > pitches[pitches.length - 1],
+      glides, steps: plan.steps.length,
+      accentPitch: accents.reduce((sum, s) => sum + s.pitch, 0) / (accents.length || 1),
+      otherPitch: around.reduce((sum, s) => sum + s.pitch, 0) / (around.length || 1),
+      pauses: comma.map((s) => +s.dur.toFixed(2))
+    };
+  });
+  assert.ok(r.spread > 0.15, `the pitch really moves across a line (${r.spread.toFixed(2)})`);
+  assert.equal(r.falls, true, 'a statement ends lower than it began');
+  assert.ok(r.glides > r.steps * 0.8, 'and it glides between targets rather than stepping');
+  assert.ok(r.accentPitch > r.otherPitch, 'stressed syllables are the high points');
+  // A comma is a breath; a full stop is a stop.
+  assert.ok(r.pauses.length >= 2 && Math.max(...r.pauses) > Math.min(...r.pauses) * 1.5,
+    `a comma is shorter than a full stop (${JSON.stringify(r.pauses)})`);
+});
+
+test('the recorded voice is not a monotone', async () => {
+  const r = await ev(async () => {
+    mrAudioEnsure();
+    const recorder = new MediaRecorder(mrAudioStream());
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.start();
+    const seconds = mrSpeakWords('The old sage waited at the temple and did not move.',
+      mrAudio.ctx.currentTime + 0.05, { name: 'A', pitch: 52, timbre: 'warm', rate: 1 }, 1, 1);
+    await new Promise((done) => setTimeout(done, seconds * 1000 + 400));
+    await new Promise((done) => { recorder.onstop = done; recorder.stop(); });
+    mrAudioStop();
+    const buffer = await new AudioContext().decodeAudioData(await new Blob(chunks).arrayBuffer());
+    const data = buffer.getChannelData(0);
+    // Track the pitch across the line by autocorrelation, window by window. A synthesiser
+    // that holds one note is exactly what "robotic" means; this is how you measure it.
+    const window = Math.floor(buffer.sampleRate * 0.06);
+    const track = [];
+    for (let start = 0; start + window * 2 < data.length; start += window) {
+      let energy = 0;
+      for (let i = start; i < start + window; i++) energy += data[i] * data[i];
+      if (Math.sqrt(energy / window) < 0.03) continue;          // silence and hiss
+      let bestLag = 0, best = 0;
+      for (let lag = Math.floor(buffer.sampleRate / 320); lag < buffer.sampleRate / 70; lag++) {
+        let sum = 0;
+        for (let i = 0; i < window; i++) sum += data[start + i] * data[start + i + lag];
+        if (sum > best) { best = sum; bestLag = lag; }
+      }
+      if (bestLag) track.push(buffer.sampleRate / bestLag);
+    }
+    const mean = track.reduce((a, b) => a + b, 0) / (track.length || 1);
+    const spread = Math.sqrt(track.reduce((sum, f) => sum + (f - mean) * (f - mean), 0) / (track.length || 1));
+    return { frames: track.length, mean, spread, low: Math.min(...track), high: Math.max(...track) };
+  });
+  assert.ok(r.frames > 8, `there is enough voiced sound to measure (${r.frames} frames)`);
+  assert.ok(r.spread / r.mean > 0.03,
+    `the pitch varies across the line (${(r.spread / r.mean * 100).toFixed(1)}% of ${Math.round(r.mean)}Hz)`);
+  assert.ok(r.spread / r.mean < 0.35, 'but does not wander out of the voice');
+  assert.ok(r.high > r.low * 1.1, `it has a top and a bottom (${Math.round(r.low)}–${Math.round(r.high)}Hz)`);
+});
+
 test('the words are actually spoken on the recorded bus', async () => {
   const r = await ev(async () => {
     mrAudioEnsure();
