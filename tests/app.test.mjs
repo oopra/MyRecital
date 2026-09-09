@@ -2209,6 +2209,51 @@ test('with no narration the mouth still speaks the words it has', async () => {
   assert.ok(r.closed > 0, 'and shuts between words');
 });
 
+test('the character panel follows the scene you are looking at', async () => {
+  const r = await ev(() => {
+    document.getElementById('storyText').value =
+      'Ashoka and the Sage\n\nA young prince rode to the city.\n\nThe old sage waited at the temple.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    // Straight after casting, the panel is looking at whichever scene is selected — which
+    // is the title card, with nobody on it. Selecting a staged scene must refill it.
+    const afterCasting = document.getElementById('actorList').textContent;
+    const staged = ed.project.scenes.filter((s) => s.stage && s.stage.actors.length);
+    selectScene(staged[0].id, true);
+    const first = {
+      list: document.getElementById('actorList').textContent,
+      editorHidden: document.getElementById('actorEditor').hidden,
+      name: document.getElementById('actorName').value
+    };
+    selectScene(staged[1].id, true);
+    const second = {
+      list: document.getElementById('actorList').textContent,
+      name: document.getElementById('actorName').value
+    };
+    // And moving the playhead re-reads what they are doing at that moment.
+    const actor = ed.project.scenes.find((s) => s.id === staged[1].id).stage.actors[0];
+    mrSelectedActorId = actor.id;
+    setKey(actor, 0, { action: 'idle' });
+    setKey(actor, 1.4, { action: 'wave' });
+    const times = sceneTimeline(ed.project);
+    const start = times[ed.project.scenes.findIndex((s) => s.id === staged[1].id)].start;
+    seek(start + 0.2);
+    const early = document.getElementById('actorAction').value;
+    seek(start + 1.8);
+    const late = document.getElementById('actorAction').value;
+    return { afterCasting, first, second, early, late, cast: staged.length };
+  });
+  assert.ok(r.cast >= 2, 'the reel has at least two staged scenes');
+  assert.ok(!/No one on stage/.test(r.first.list),
+    `selecting a staged scene shows its cast (${r.first.list.slice(0, 60)})`);
+  assert.equal(r.first.editorHidden, false, 'and opens the character panel');
+  assert.ok(r.first.name, 'with somebody in it');
+  assert.ok(!/No one on stage/.test(r.second.list), 'and the next scene shows its own cast');
+  assert.equal(r.early, 'idle', 'the panel reads the pose at the playhead');
+  assert.equal(r.late, 'wave', 'and re-reads it when the playhead moves');
+  void r.afterCasting;
+});
+
 test('the character panel offers an age, and choosing one redraws them', async () => {
   const r = await ev(() => {
     document.querySelector('[data-tab="animate"]').click();

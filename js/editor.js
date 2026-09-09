@@ -184,7 +184,9 @@ function seek(seconds) {
   drawPreview();
   updateTransport();
   highlightPlayhead();
-  if (!ed.playing) renderKeyList();
+  // Pose, mood, facing and size are what the character is doing AT THE PLAYHEAD, so moving
+  // the playhead has to re-read them; otherwise the panel describes a moment you have left.
+  if (!ed.playing) syncAnimatePanel();
 }
 
 // ---------------------------------------------------------------- timeline
@@ -273,6 +275,10 @@ function selectScene(id, seekToIt) {
   renderTimeline();
   syncInspector();
   syncPicturePanel();
+  // The cast belongs to the scene, so changing scene has to rebuild the character panel.
+  // Without this it kept showing the previous scene's cast — and, straight after casting a
+  // reel, showed "no one on stage yet" over a stage full of people.
+  syncAnimatePanel();
   drawPreview();
 }
 
