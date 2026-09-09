@@ -102,9 +102,14 @@ const MR_PHONEME_VISEME = {
 
 // ---------------------------------------------------------------- letters to sounds
 
-// The words English spelling will never yield to a rule. Short and common: between them
-// these account for a large share of any page of ordinary prose, and every one of them
-// would come out wrong from the rules below.
+// The words English spelling will never yield to a rule. Between them these account for a
+// large share of any page of ordinary prose, and every one of them would come out wrong
+// from the rules below.
+//
+// A `1` on a vowel marks the stressed syllable, in the notation every pronouncing
+// dictionary uses. It is only needed where the stress rules would guess wrong — machine,
+// himself, understand — because for most words they guess right, and an entry that repeats
+// what the rules already know is one more thing to keep correct.
 const MR_LEXICON = {
   a: 'AX', the: 'DH AX', to: 'T UW', of: 'AH V', and: 'AE N D', is: 'IH Z', was: 'W AH Z',
   are: 'AA R', were: 'W ER', been: 'B IH N', do: 'D UW', does: 'D AH Z', done: 'D AH N',
@@ -115,10 +120,10 @@ const MR_LEXICON = {
   you: 'Y UW', your: 'Y AO R', yours: 'Y AO R Z', my: 'M AY', her: 'HH ER', his: 'HH IH Z',
   our: 'AW ER', from: 'F R AH M', have: 'HH AE V', has: 'HH AE Z', had: 'HH AE D',
   come: 'K AH M', came: 'K EY M', some: 'S AH M', son: 'S AH N', once: 'W AH N S',
-  love: 'L AH V', live: 'L IH V', give: 'G IH V', gave: 'G EY V', again: 'AX G EH N',
-  against: 'AX G EH N S T', many: 'M EH N IY', any: 'EH N IY', money: 'M AH N IY',
+  love: 'L AH V', live: 'L IH V', give: 'G IH V', gave: 'G EY V', again: 'AX G EH1 N',
+  against: 'AX G EH1 N S T', many: 'M EH N IY', any: 'EH N IY', money: 'M AH N IY',
   water: 'W AO T ER', walk: 'W AO K', walked: 'W AO K T', talk: 'T AO K', talked: 'T AO K T',
-  laugh: 'L AE F', laughed: 'L AE F T', enough: 'IH N AH F', though: 'DH OW',
+  laugh: 'L AE F', laughed: 'L AE F T', enough: 'IH N AH1 F', though: 'DH OW',
   through: 'TH R UW', thought: 'TH AO T', bought: 'B AO T', brought: 'B R AO T',
   ought: 'AO T', caught: 'K AO T', taught: 'T AO T', daughter: 'D AO T ER',
   eye: 'AY', eyes: 'AY Z', people: 'P IY P AX L', women: 'W IH M IH N', woman: 'W UH M AX N',
@@ -131,7 +136,7 @@ const MR_LEXICON = {
   heart: 'HH AA R T', earth: 'ER TH', early: 'ER L IY', learn: 'L ER N', work: 'W ER K',
   world: 'W ER L D', word: 'W ER D', words: 'W ER D Z', very: 'V EH R IY',
   every: 'EH V R IY', river: 'R IH V ER', over: 'OW V ER', other: 'AH DH ER',
-  another: 'AX N AH DH ER', mother: 'M AH DH ER', father: 'F AA DH ER', brother: 'B R AH DH ER',
+  another: 'AX N AH1 DH ER', mother: 'M AH DH ER', father: 'F AA DH ER', brother: 'B R AH DH ER',
   nothing: 'N AH TH IH NG', something: 'S AH M TH IH NG', anything: 'EH N IY TH IH NG',
   i: 'AY', 'i\'m': 'AY M', 'don\'t': 'D OW N T', 'can\'t': 'K AE N T', 'it\'s': 'IH T S',
   'you\'re': 'Y UW R', 'we\'re': 'W IY R', 'i\'ll': 'AY L',
@@ -152,11 +157,125 @@ const MR_LEXICON = {
   war: 'W AO R', warm: 'W AO R M', want: 'W AA N T', watch: 'W AA CH', wash: 'W AA SH',
   city: 'S IH T IY', busy: 'B IH Z IY', build: 'B IH L D', built: 'B IH L T',
   guard: 'G AA R D', guide: 'G AY D', tongue: 'T AH NG', young: 'Y AH NG',
-  among: 'AX M AH NG', country: 'K AH N T R IY', trouble: 'T R AH B AX L',
+  among: 'AX M AH1 NG', country: 'K AH N T R IY', trouble: 'T R AH B AX L',
   double: 'D AH B AX L', touch: 'T AH CH', queen: 'K W IY N',
   king: 'K IH NG', boy: 'B OY', girl: 'G ER L', man: 'M AE N', men: 'M EH N',
   sun: 'S AH N', moon: 'M UW N', star: 'S T AA R', sky: 'S K AY',
-  fire: 'F AY ER', hour: 'AW ER'
+  fire: 'F AY ER', hour: 'AW ER',
+
+  // The rest of the common few hundred. Ordinary words, but ordinary words are what a
+  // story is mostly made of, and a synthesiser that mispronounces "little" or "answer"
+  // sounds broken however well it handles the rare ones.
+  about: 'AX B AW1 T', above: 'AX B AH1 V', across: 'AX K R AO1 S', after: 'AE F T ER',
+  away: 'AX W EY1', alone: 'AX L OW1 N', ago: 'AX G OW1', around: 'AX R AW1 N D',
+  asleep: 'AX S L IY1 P', awake: 'AX W EY1 K', aside: 'AX S AY1 D', apart: 'AX P AA1 R T',
+  appear: 'AX P IH1 R', arrive: 'AX R AY1 V', afraid: 'AX F R EY1 D',
+  elephant: 'EH L IH F AX N T', enemy: 'EH N AX M IY',
+  almost: 'AO L M OW S T', along: 'AX L AO1 NG', already: 'AO L R EH1 D IY',
+  also: 'AO L S OW', although: 'AO L DH OW1', always: 'AO L W EY Z', am: 'AE M',
+  before: 'B IH F AO1 R', began: 'B IH G AE1 N', begin: 'B IH G IH1 N', below: 'B IH L OW1',
+  between: 'B IH T W IY1 N', beyond: 'B IH Y AA1 N D', bring: 'B R IH NG', buy: 'B AY',
+  call: 'K AO L', called: 'K AO L D', can: 'K AE N', cannot: 'K AE N AA T',
+  carry: 'K AE R IY', change: 'CH EY N JH', close: 'K L OW Z', course: 'K AO R S',
+  cut: 'K AH T', different: 'D IH F R AX N T', during: 'D UH R IH NG', eight: 'EY T',
+  either: 'IY DH ER', else: 'EH L S', end: 'EH N D', even: 'IY V AX N',
+  evening: 'IY V N IH NG', ever: 'EH V ER', example: 'IH G Z AE1 M P AX L',
+  face: 'F EY S', fall: 'F AO L', family: 'F AE M AX L IY', far: 'F AA R', feet: 'F IY T',
+  few: 'F Y UW', field: 'F IY L D', fight: 'F AY T', fill: 'F IH L',
+  finally: 'F AY N AX L IY', fine: 'F AY N', first: 'F ER S T', five: 'F AY V',
+  follow: 'F AA L OW', food: 'F UW D', forest: 'F AO R AX S T', forward: 'F AO R W ER D',
+  front: 'F R AH N T', gone: 'G AO N', ground: 'G R AW N D', group: 'G R UW P',
+  grow: 'G R OW', guess: 'G EH S', hand: 'HH AE N D', happen: 'HH AE P AX N',
+  hard: 'HH AA R D', heavy: 'HH EH V IY', help: 'HH EH L P', himself: 'HH IH M S EH1 L F',
+  herself: 'HH ER S EH1 L F', home: 'HH OW M', horse: 'HH AO R S', house: 'HH AW S',
+  however: 'HH AW EH1 V ER', hundred: 'HH AH N D R AX D', hurry: 'HH ER IY',
+  idea: 'AY D IY1 AX', important: 'IH M P AO1 R T AX N T', inside: 'IH N S AY1 D',
+  instead: 'IH N S T EH1 D', keep: 'K IY P', kept: 'K EH P T', known: 'N OW N',
+  lady: 'L EY D IY', large: 'L AA R JH', last: 'L AE S T', later: 'L EY T ER',
+  leave: 'L IY V', left: 'L EH F T', less: 'L EH S', letter: 'L EH T ER', lie: 'L AY',
+  life: 'L AY F', lion: 'L AY AX N', listen: 'L IH S AX N', listened: 'L IH S AX N D',
+  little: 'L IH T AX L', lost: 'L AO S T', loud: 'L AW D', machine: 'M AX SH IY1 N',
+  made: 'M EY D', make: 'M EY K', mean: 'M IY N', meant: 'M EH N T',
+  measure: 'M EH ZH ER', meet: 'M IY T', middle: 'M IH D AX L', million: 'M IH L Y AX N',
+  minute: 'M IH N IH T', moment: 'M OW M AX N T', more: 'M AO R', morning: 'M AO R N IH NG',
+  most: 'M OW S T', move: 'M UW V', much: 'M AH CH', music: 'M Y UW Z IH K',
+  must: 'M AH S T', name: 'N EY M', never: 'N EH V ER', next: 'N EH K S T', nine: 'N AY N',
+  none: 'N AH N', north: 'N AO R TH', note: 'N OW T', number: 'N AH M B ER',
+  ocean: 'OW SH AX N', often: 'AO F AX N', oil: 'OY L', only: 'OW N L IY',
+  open: 'OW P AX N', order: 'AO R D ER', others: 'AH DH ER Z', outside: 'AW T S AY1 D',
+  own: 'OW N', page: 'P EY JH', paper: 'P EY P ER', part: 'P AA R T', party: 'P AA R T IY',
+  pass: 'P AE S', perhaps: 'P ER HH AE1 P S', piece: 'P IY S', place: 'P L EY S',
+  plant: 'P L AE N T', play: 'P L EY', point: 'P OY N T', power: 'P AW ER',
+  present: 'P R EH Z AX N T', pretty: 'P R IH T IY', probably: 'P R AA B AX B L IY',
+  problem: 'P R AA B L AX M', quick: 'K W IH K', quiet: 'K W AY AX T', quite: 'K W AY T',
+  rain: 'R EY N', reach: 'R IY CH', real: 'R IY L', remember: 'R IH M EH1 M B ER',
+  rest: 'R EH S T', return: 'R IH T ER1 N', rock: 'R AA K', room: 'R UW M',
+  round: 'R AW N D', run: 'R AH N', same: 'S EY M', saw: 'S AO', school: 'S K UW L',
+  second: 'S EH K AX N D', seem: 'S IY M', seen: 'S IY N', sense: 'S EH N S',
+  seven: 'S EH V AX N', several: 'S EH V R AX L', shall: 'SH AE L', ship: 'SH IH P',
+  short: 'SH AO R T', shoulder: 'SH OW L D ER', side: 'S AY D', since: 'S IH N S',
+  six: 'S IH K S', size: 'S AY Z', sleep: 'S L IY P', small: 'S M AO L',
+  smile: 'S M AY L', smiled: 'S M AY L D', soft: 'S AO F T', sound: 'S AW N D',
+  south: 'S AW TH', space: 'S P EY S', stand: 'S T AE N D', start: 'S T AA R T',
+  state: 'S T EY T', stay: 'S T EY', step: 'S T EH P', still: 'S T IH L',
+  stone: 'S T OW N', stop: 'S T AA P', strange: 'S T R EY N JH', street: 'S T R IY T',
+  strong: 'S T R AO NG', study: 'S T AH D IY', such: 'S AH CH', sudden: 'S AH D AX N',
+  summer: 'S AH M ER', sure: 'SH UH R', surprise: 'S ER P R AY1 Z', table: 'T EY B AX L',
+  take: 'T EY K', taken: 'T EY K AX N', teach: 'T IY CH', tell: 'T EH L', ten: 'T EH N',
+  thank: 'TH AE NG K', thing: 'TH IH NG', things: 'TH IH NG Z', think: 'TH IH NG K',
+  third: 'TH ER D', three: 'TH R IY', throw: 'TH R OW', till: 'T IH L', time: 'T AY M',
+  today: 'T AX D EY1', together: 'T AX G EH1 DH ER', tomorrow: 'T AX M AA1 R OW',
+  tonight: 'T AX N AY1 T', top: 'T AA P', toward: 'T AO R D', towards: 'T AO R D Z',
+  town: 'T AW N', travel: 'T R AE V AX L', tree: 'T R IY', true: 'T R UW', turn: 'T ER N',
+  under: 'AH N D ER', understand: 'AH N D ER S T AE1 N D', until: 'AH N T IH1 L',
+  upon: 'AX P AA1 N', use: 'Y UW Z', usually: 'Y UW ZH AX L IY', voice: 'V OY S',
+  wait: 'W EY T', waited: 'W EY T IH D', wall: 'W AO L', wear: 'W EH R', week: 'W IY K',
+  weight: 'W EY T', west: 'W EH S T', wheel: 'W IY L', while: 'W AY L', white: 'W AY T',
+  whole: 'HH OW L', whose: 'HH UW Z', wide: 'W AY D', wife: 'W AY F', wild: 'W AY L D',
+  window: 'W IH N D OW', wish: 'W IH SH', within: 'W IH DH IH1 N', without: 'W IH TH AW1 T',
+  wonder: 'W AH N D ER', wondered: 'W AH N D ER D', wood: 'W UH D', wooden: 'W UH D AX N',
+  yes: 'Y EH S', yesterday: 'Y EH S T ER D EY', yet: 'Y EH T',
+
+  // The words a history story is built out of.
+  ancient: 'EY N SH AX N T', army: 'AA R M IY', arrow: 'AE R OW', battle: 'B AE T AX L',
+  brave: 'B R EY V', bronze: 'B R AA N Z', castle: 'K AE S AX L', cave: 'K EY V',
+  century: 'S EH N CH ER IY', chariot: 'CH AE R IY AX T', chief: 'CH IY F',
+  clay: 'K L EY', coin: 'K OY N', court: 'K AO R T', desert: 'D EH Z ER T',
+  discover: 'D IH S K AH1 V ER', distant: 'D IH S T AX N T', east: 'IY S T',
+  emperor: 'EH M P ER ER', empire: 'EH M P AY ER', famous: 'F EY M AX S',
+  farmer: 'F AA R M ER', festival: 'F EH S T AX V AX L', fort: 'F AO R T', gate: 'G EY T',
+  goddess: 'G AA D AX S', gods: 'G AA D Z', golden: 'G OW L D AX N', grain: 'G R EY N',
+  harvest: 'HH AA R V AX S T', helmet: 'HH EH L M AX T', honour: 'AA N ER',
+  honor: 'AA N ER', journey: 'JH ER N IY', kingdom: 'K IH NG D AX M', knight: 'N AY T',
+  kneel: 'N IY L', knelt: 'N EH L T', market: 'M AA R K AX T', merchant: 'M ER CH AX N T',
+  monk: 'M AH NG K', palace: 'P AE L AX S', pharaoh: 'F EH R OW', priest: 'P R IY S T',
+  prince: 'P R IH N S', princess: 'P R IH N S EH S', pyramid: 'P IH R AX M IH D',
+  ruler: 'R UW L ER', sacred: 'S EY K R AX D', scholar: 'S K AA L ER', scroll: 'S K R OW L',
+  shield: 'SH IY L D', silk: 'S IH L K', silver: 'S IH L V ER', soldier: 'S OW L JH ER',
+  statue: 'S T AE CH UW', throne: 'TH R OW N', tomb: 'T UW M', trade: 'T R EY D',
+  treasure: 'T R EH ZH ER', tribe: 'T R AY B', village: 'V IH L AX JH',
+  warrior: 'W AO R IY ER', wheat: 'W IY T', wisdom: 'W IH Z D AX M',
+  rome: 'R OW M', roman: 'R OW M AX N', greece: 'G R IY S', greek: 'G R IY K',
+  egypt: 'IY JH IH P T', egyptian: 'IH JH IH1 P SH AX N', china: 'CH AY N AX',
+  chinese: 'CH AY N IY1 Z', india: 'IH N D IY AX', indian: 'IH N D IY AX N',
+  mughal: 'M UW G AX L', sanskrit: 'S AE N S K R IH T',
+
+  // Silent letters, and the spellings that lie about themselves.
+  comb: 'K OW M', debt: 'D EH T', doubt: 'D AW T', honest: 'AA N AX S T', lamb: 'L AE M',
+  muscle: 'M AH S AX L', salmon: 'S AE M AX N', scene: 'S IY N', subtle: 'S AH T AX L',
+  thumb: 'TH AH M', whistle: 'W IH S AX L', wrist: 'R IH S T', chaos: 'K EY AA S',
+  character: 'K EH R AX K T ER', echo: 'EH K OW', monarch: 'M AA N ER K',
+  scheme: 'S K IY M', stomach: 'S T AH M AX K', ache: 'EY K', chef: 'SH EH F',
+  ghost: 'G OW S T', height: 'HH AY T', weird: 'W IH R D',
+  thousand: 'TH AW Z AX N D', rule: 'R UW L', wake: 'W EY K', woke: 'W OW K',
+  hundreds: 'HH AH N D R AX D Z', thousands: 'TH AW Z AX N D Z',
+
+  // A few names, because a story is mostly names and the rules cannot know them. Anything
+  // not listed is pronounced the way it is spelled, which is the honest failure.
+  ashoka: 'AX SH OW1 K AX', aruna: 'AX R UW1 N AX', arjuna: 'AA R JH UW1 N AX',
+  krishna: 'K R IH SH N AX', ravi: 'R AA V IY', meera: 'M IY R AX', sita: 'S IY T AX',
+  rama: 'R AA M AX', akbar: 'AE K B AA R', ganges: 'G AE N JH IY Z',
+  caesar: 'S IY Z ER', athens: 'AE TH AX N Z', cairo: 'K AY R OW', delhi: 'D EH L IY'
 };
 
 // Letters to sounds, with context. Each rule is [left, letters, right, phonemes] where the
@@ -172,11 +291,21 @@ const MR_LTS = [
   [null, 'tion', null, 'SH AX N'], [null, 'sion', /^s/, 'SH AX N'], [null, 'sion', null, 'ZH AX N'],
   [null, 'ture', null, 'CH ER'], [null, 'ough', null, 'AH F'],
   [null, 'ight', null, 'AY T'], [null, 'augh', null, 'AO'],
-  [null, 'ing', null, 'IH NG'], [null, 'ies', null, 'IY Z'], [null, 'ied', null, 'IY D'],
+  // Unstressed endings, spelled out so their vowels come out as the schwas they are:
+  // careFUL is not care-FULL, and kindNESS is not kind-NESS.
+  [null, 'ful', /^(ly)?$/, 'F AX L'], [null, 'less', /^(ly)?$/, 'L AX S'],
+  [null, 'ness', /^$/, 'N AX S'], [null, 'ment', /^s?$/, 'M AX N T'],
+  [null, 'ous', /^(ly)?$/, 'AX S'], [null, 'able', /^$/, 'AX B AX L'],
+  [null, 'ing', null, 'IH NG'],
+  // A one-syllable stem keeps its long vowel: tried and cried are not carried and hurried,
+  // and the difference is whether there is another vowel in front of the ending.
+  [/^[^aeiou]{0,3}$/, 'ied', /^$/, 'AY D'], [/^[^aeiou]{0,3}$/, 'ies', /^$/, 'AY Z'],
+  [null, 'ies', null, 'IY Z'], [null, 'ied', null, 'IY D'],
   [/[^aeiou]$/, 'y', /^$/, 'IY'], [/[^aeiou]$/, 'y', /^s$/, 'IY'],
   [null, 'ed', /^$/, 'D'],                     // voicing is fixed up afterwards
   [null, 'le', /^$/, 'AX L'],                  // temple, people, little
   [null, 'e', /^$/, ''],                       // the silent e, handled by the vowel rules
+  [null, 'e', /^(ful|less|ly|ness)$/, ''],     // and it stays silent under an ending
   [null, 'es', /^$/, 'IH Z'],
   [/^$/, 'be', /^[^aeiouy]/, 'B IH'],          // beside, begin, before
 
@@ -187,6 +316,7 @@ const MR_LTS = [
   [null, 'ck', null, 'K'], [null, 'gh', /^t/, ''], [null, 'gh', null, 'G'],
   [null, 'ng', /^$/, 'NG'], [null, 'nk', null, 'NG K'],
   [/^$/, 'kn', null, 'N'], [/^$/, 'wr', null, 'R'], [/^$/, 'gn', null, 'N'],
+  [/^$/, 'won', null, 'W AH N'],               // wonder, wonderful, wonderland
   [null, 'dge', null, 'JH'], [null, 'ge', /^$/, 'JH'],
 
   // Vowel digraphs.
@@ -204,15 +334,24 @@ const MR_LTS = [
 
   // Vowel plus r, which changes everything about it. Unconditional: story and glory take
   // the same AO R as storm and fort, and the conditional version got them wrong.
+  [null, 'are', /^($|[^aeiouy])/, 'EH R'],     // care, careful, share, bare
   [null, 'ar', null, 'AA R'], [null, 'or', null, 'AO R'],
   [null, 'er', null, 'ER'], [null, 'ir', null, 'ER'], [null, 'ur', null, 'ER'],
 
   // Single vowels: long before a consonant and a silent e, short otherwise.
   [null, 'a', /^$/, 'AX'],                     // Aruna, India, a final a is a schwa
   [null, 'a', /^tion/, 'EY'],                  // nation, station
-  [null, 'a', /^[^aeiouy]e$/, 'EY'], [null, 'e', /^[^aeiouy]e$/, 'IY'],
-  [null, 'i', /^[^aeiouy]e$/, 'AY'], [null, 'o', /^[^aeiouy]e$/, 'OW'],
-  [null, 'u', /^[^aeiouy]e$/, 'UW'],
+  // The silent e that lengthens the vowel before it — and it goes on doing that when an
+  // ending is stuck on the end: rule, ruled, ruler. Spelling drops the e before -ing
+  // (wake, waking) so that gets its own line, and the words where it lies about the vowel
+  // (have, give, come, live) are caught earlier, in the dictionary.
+  [null, 'a', /^[^aeiouy]e(d|s|r|st|ful|less|ly|ness)?$/, 'EY'],
+  [null, 'e', /^[^aeiouy]e(d|s|r|st|ful|less|ly|ness)?$/, 'IY'],
+  [null, 'i', /^[^aeiouy]e(d|s|r|st|ful|less|ly|ness)?$/, 'AY'],
+  [null, 'o', /^[^aeiouy]e(d|s|r|st|ful|less|ly|ness)?$/, 'OW'],
+  [null, 'u', /^[^aeiouy]e(d|s|r|st|ful|less|ly|ness)?$/, 'UW'],
+  [null, 'a', /^[^aeiouy]ing$/, 'EY'], [null, 'i', /^[^aeiouy]ing$/, 'AY'],
+  [null, 'o', /^[^aeiouy]ing$/, 'OW'], [null, 'u', /^[^aeiouy]ing$/, 'UW'],
   [null, 'a', /^[^aeiouy]{2}/, 'AE'], [null, 'a', null, 'AE'],
   [null, 'e', /^$/, ''], [null, 'e', null, 'EH'],
   [null, 'i', /^gh/, 'AY'], [null, 'i', /^nd$/, 'AY'], [null, 'i', null, 'IH'],
@@ -224,7 +363,7 @@ const MR_LTS = [
   [null, 'c', /^[eiy]/, 'S'], [null, 'c', null, 'K'],
   [null, 'g', /^[eiy]/, 'JH'], [null, 'g', null, 'G'],
   [/[aeiou]$/, 's', /^e$/, 'Z'],               // wise, rose, those — but not beside
-  [null, 's', /^$/, 'Z'], [null, 's', null, 'S'],
+  [/[^s]$/, 's', /^$/, 'Z'], [null, 's', null, 'S'],   // dogs buzzes, happiness does not
   [null, 'x', null, 'K S'], [null, 'j', null, 'JH'], [null, 'z', null, 'Z'],
   [null, 'b', null, 'B'], [null, 'd', null, 'D'], [null, 'f', null, 'F'],
   [null, 'h', null, 'HH'], [null, 'k', null, 'K'], [null, 'l', null, 'L'],
@@ -233,27 +372,61 @@ const MR_LTS = [
   [null, 'w', null, 'W'], [null, "'", null, '']
 ];
 
-// One word to phonemes. The dictionary first, then the rules, then the endings that the
-// rules deliberately leave for last because they depend on the sound before them.
-function phonemesForWord(word) {
-  const clean = String(word || '').toLowerCase().replace(/[^a-z']/g, '');
-  if (!clean) return [];
-  if (MR_LEXICON[clean]) return MR_LEXICON[clean].split(' ');
+// A dictionary entry, parsed once: the sounds, and which of them carries the stress.
+const mrEntries = new Map();
+function mrEntry(clean) {
+  if (mrEntries.has(clean)) return mrEntries.get(clean);
+  const raw = MR_LEXICON[clean];
+  if (!raw) { mrEntries.set(clean, null); return null; }
+  const phonemes = [];
+  let stress = null;
+  for (const part of raw.split(' ')) {
+    if (part.endsWith('1')) { stress = phonemes.length; phonemes.push(part.slice(0, -1)); }
+    else phonemes.push(part);
+  }
+  const entry = { phonemes, stress };
+  mrEntries.set(clean, entry);
+  return entry;
+}
 
-  // A plural or a past tense of something in the dictionary is still in the dictionary.
-  for (const [suffix, sound] of [['s', 'S'], ['ed', 'D'], ['ing', 'IH NG']]) {
+// One word to sounds, and to the syllable it is said with. `stress` is null when the
+// dictionary has no opinion, which is most of the time — then the rules decide.
+function pronounce(word) {
+  const clean = String(word || '').toLowerCase().replace(/[^a-z']/g, '');
+  if (!clean) return { phonemes: [], stress: null, word: clean };
+  const listed = mrEntry(clean);
+  if (listed) return { phonemes: listed.phonemes, stress: listed.stress, word: clean };
+
+  // A plural or a past tense of something in the dictionary is still in the dictionary,
+  // and keeps the stem's stressed syllable: remembered is stressed where remember is.
+  // `rebuild` puts back the letter the spelling dropped: waking is wake, carried is carry.
+  for (const [suffix, sound, rebuild] of [['s', 'S', ''], ['ed', 'D', ''], ['ing', 'IH NG', ''],
+    ['ly', 'L IY', ''], ['ness', 'N AX S', ''], ['ful', 'F AX L', ''], ['less', 'L AX S', ''],
+    ['er', 'ER', ''], ['est', 'AX S T', ''],
+    ['ing', 'IH NG', 'e'], ['ed', 'D', 'e'], ['ied', 'D', 'y'], ['ies', 'Z', 'y']]) {
     if (clean.length > suffix.length + 2 && clean.endsWith(suffix)) {
-      const stem = clean.slice(0, -suffix.length);
-      if (MR_LEXICON[stem]) {
-        const base = MR_LEXICON[stem].split(' ');
-        return base.concat(mrInflect(base[base.length - 1], suffix, sound));
+      const stem = mrEntry(clean.slice(0, -suffix.length) + rebuild);
+      if (stem) {
+        const base = stem.phonemes;
+        return {
+          phonemes: base.concat(mrInflect(base[base.length - 1], suffix, sound)),
+          stress: stem.stress, word: clean
+        };
       }
     }
   }
+  return { phonemes: mrSpell(clean), stress: null, word: clean };
+}
+
+function phonemesForWord(word) {
+  return pronounce(word).phonemes;
+}
+
+// The rules, for everything the dictionary has never heard of.
+function mrSpell(clean) {
 
   const out = [];
   let at = 0;
-  const VOWELS = ['AA', 'AE', 'AH', 'AO', 'AW', 'AX', 'AY', 'EH', 'ER', 'EY', 'IH', 'IY', 'OW', 'OY', 'UH', 'UW'];
   while (at < clean.length) {
     let matched = null;
     for (const [left, letters, right, phonemes] of MR_LTS) {
@@ -271,7 +444,7 @@ function phonemesForWord(word) {
   const sounds = out.filter((p) => MR_PHONEMES[p]);
   // A doubled letter is one sound: well is not spoken well-l, and traveller has one l in
   // the middle of it however many are written.
-  const collapsed = sounds.filter((p, i) => p !== sounds[i - 1] || VOWELS.indexOf(p) >= 0);
+  const collapsed = sounds.filter((p, i) => p !== sounds[i - 1] || MR_VOWEL_SET.has(p));
   // English -ed agrees with the sound before it: walked ends in t, feared ends in d, and
   // wanted grows a syllable. The rule above always says d; this is where that is repaired.
   if (clean.endsWith('ed') && collapsed[collapsed.length - 1] === 'D' && collapsed.length > 1) {
@@ -316,21 +489,65 @@ const MR_FUNCTION_WORDS = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'of', '
   'those', 'there', 'then', 'than', 'so', 'if', 'by', 'into', 'upon', 'over', 'under',
   'all', 'which']);
 
-// Prefixes that are never the stressed syllable: beside, again, return, unless.
-const MR_UNSTRESSED_PREFIX = /^(a|be|re|in|un|de|ex|con|com|ad|em|en|pro|per|sur)/;
+// Prefixes that are never the stressed syllable: beside, again, return, unless. Only
+// counted when the word is long enough for the prefix to be a prefix rather than the whole
+// of it — "any" does not begin with the a- of "again", and "recent" is not re-cent.
+// Left out on purpose: a-, em- and en-. They look like prefixes and mostly are not —
+// ancient, answer, army, emperor, enemy — and the handful of real ones (about, again,
+// enough) are in the dictionary anyway.
+const MR_UNSTRESSED_PREFIX = /^(be|re|de|un|in|im|dis|mis|ex|con|com|ad|ac|pro|per|sur|pre|sub)(?=[a-z]{3})/;
 
-// Which vowel in a word takes the stress. Rough, and rough is enough: the difference
-// between the right syllable and any syllable is enormous, the difference between the
-// right syllable and the second-best is small.
+// English stress is decided by the ENDING of a word far more than by its beginning, and
+// the endings fall into three kinds. This is the standard three-way split every rule-based
+// synthesiser uses, and it is worth more than any amount of work on the vowels: stress on
+// the wrong syllable makes a familiar word unrecognisable in a way a wrong vowel does not.
+
+// Endings that pull the stress onto the syllable before them. Split by how many syllables
+// the ending itself is, because "before the ending" has to count back past all of them:
+// naTION is one syllable back, aBILity is two.
+const MR_STRESS_BEFORE_ONE = /(tion|sions?|cion|ian|ial|ic|ics)$/;
+const MR_STRESS_BEFORE_TWO = /(ity|ety|ify|itude|ical|ically|ially|iously|ious|ular|uous)$/;
+
+// Endings that take the stress themselves. engiNEER, JapanESE, cigarETTE, picturESQUE.
+const MR_STRESS_ON = /(eer|ee|ese|ette|esque|oon|aire)$/;
+
+// Endings that count back three syllables: phoTOGraphy, geOLogy, deMOCracy, geOMetry.
+const MR_STRESS_THIRD = /(graphy|logy|ology|ometry|onomy|ocracy|opathy|ivity)$/;
+
+// Endings that change nothing at all: the stem keeps whatever stress it had. Nearly every
+// ending in ordinary prose is one of these, which is why the default is so often right.
+const MR_STRESS_NEUTRAL = /(ing|ings|ed|es|s|er|ers|est|ly|ness|ful|fully|less|ment|ments|able|ish|hood|ship|dom|like)$/;
+
+// Which vowel in a word takes the stress. Rough, and rough is enough: the gap between the
+// right syllable and any syllable at all is enormous; the gap between the right syllable
+// and the second-best is small.
 function mrStressIndex(word, phonemes) {
   const vowels = [];
   phonemes.forEach((p, i) => { if (MR_VOWEL_SET.has(p)) vowels.push(i); });
   if (!vowels.length) return -1;
   if (MR_FUNCTION_WORDS.has(word)) return -1;
   if (vowels.length === 1) return vowels[0];
-  // The endings that pull the stress back onto the syllable before them.
-  if (/(tion|sion|ity|ical|ially|ic|ian)$/.test(word)) return vowels[vowels.length - 2];
-  if (MR_UNSTRESSED_PREFIX.test(word)) return vowels[1];
+
+  const pick = (n) => vowels[Math.max(0, Math.min(vowels.length - 1, n))];
+  if (MR_STRESS_ON.test(word)) return pick(vowels.length - 1);
+  if (MR_STRESS_THIRD.test(word)) return pick(vowels.length - 3);
+  if (MR_STRESS_BEFORE_TWO.test(word)) return pick(vowels.length - 3);
+  if (MR_STRESS_BEFORE_ONE.test(word)) return pick(vowels.length - 2);
+
+  // A stress-neutral ending is stripped and the question asked again of the stem, so that
+  // "remembering" is stressed where "remember" is rather than on its first syllable.
+  const neutral = word.match(MR_STRESS_NEUTRAL);
+  if (neutral && word.length - neutral[0].length >= 3) {
+    const stem = word.slice(0, word.length - neutral[0].length);
+    if (MR_STRESS_ON.test(stem) || MR_STRESS_THIRD.test(stem) ||
+        MR_STRESS_BEFORE_ONE.test(stem) || MR_STRESS_BEFORE_TWO.test(stem)) {
+      return mrStressIndex(stem, phonemes);
+    }
+    if (MR_UNSTRESSED_PREFIX.test(stem)) return pick(1);
+    return vowels[0];
+  }
+
+  if (MR_UNSTRESSED_PREFIX.test(word)) return pick(1);
   return vowels[0];
 }
 
@@ -348,11 +565,13 @@ function phonemeTokens(text) {
       else out.push({ p: '_', pause, stress: 0 });
       continue;
     }
-    const sounds = phonemesForWord(chunk);
+    const said = pronounce(chunk);
+    const sounds = said.phonemes;
     if (!sounds.length) continue;
     if (out.length && out[out.length - 1].p !== '_') out.push({ p: '_', pause: 0.055, stress: 0 });
-    const word = String(chunk).toLowerCase().replace(/[^a-z']/g, '');
-    const stressAt = mrStressIndex(word, sounds);
+    const word = said.word;
+    // The dictionary's own stress mark wins; without one, the rules decide.
+    const stressAt = said.stress != null ? said.stress : mrStressIndex(word, sounds);
     sounds.forEach((p, i) => out.push({
       p, word,
       // 1 stressed, -1 an unstressed vowel to be reduced, 0 everything else.

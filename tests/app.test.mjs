@@ -2532,6 +2532,110 @@ test('letters become the sounds they are actually pronounced as', async () => {
   assert.equal(r.queen, 'K W IY N');
 });
 
+test('the stress lands on the syllable English puts it on', async () => {
+  const r = await ev(() => {
+    const stressed = (word) => {
+      const said = pronounce(word);
+      const at = said.stress != null ? said.stress : mrStressIndex(said.word, said.phonemes);
+      return at < 0 ? null : said.phonemes[at];
+    };
+    const words = ['nation', 'ability', 'historic', 'engineer', 'Chinese', 'photography',
+      'biology', 'remember', 'remembering', 'machine', 'himself', 'understand', 'traveller',
+      'together', 'emperor', 'ancient', 'answer', 'again', 'beside', 'discover', 'kingdom',
+      'quietly', 'wonderful', 'the', 'of', 'was'];
+    const out = {};
+    for (const word of words) out[word] = stressed(word);
+    return out;
+  });
+  // Suffixes decide English stress far more than prefixes do, and each kind counts back a
+  // different distance: naTION one syllable, aBILity two, phoTOGraphy three, engiNEER none.
+  assert.equal(r.nation, 'EY', 'naTION');
+  assert.equal(r.ability, 'IH', 'aBILity');
+  assert.equal(r.historic, 'AO', 'hisTORic');
+  assert.equal(r.engineer, 'IY', 'engiNEER takes the stress itself');
+  assert.equal(r.Chinese, 'IY', 'and so does ChiNESE');
+  assert.equal(r.photography, 'AA', 'phoTOGraphy counts back three');
+  assert.equal(r.biology, 'AA', 'and biOLogy');
+  // Stress-neutral endings leave the stem alone.
+  assert.equal(r.remember, 'EH', 'reMEMber');
+  assert.equal(r.remembering, 'EH', 'and reMEMbering, not REmembering');
+  assert.equal(r.quietly, 'AY', 'QUIetly');
+  assert.equal(r.wonderful, 'AH', 'WONderful');
+  // The ones that used to come out wrong: a false prefix, or none at all.
+  assert.equal(r.ancient, 'EY', 'ANcient is not an-CIENT');
+  assert.equal(r.answer, 'AE', 'ANswer is not an-SWER');
+  assert.equal(r.emperor, 'EH', 'EMperor is not em-PEROR');
+  assert.equal(r.machine, 'IY', 'maCHINE, from the dictionary');
+  assert.equal(r.himself, 'EH', 'himSELF, likewise');
+  assert.equal(r.understand, 'AE', 'underSTAND');
+  assert.equal(r.again, 'EH', 'aGAIN');
+  assert.equal(r.beside, 'AY', 'beSIDE — a real prefix this time');
+  assert.equal(r.discover, 'AH', 'disCOVer');
+  assert.equal(r.traveller, 'AE', 'TRAVeller');
+  assert.equal(r.together, 'EH', 'toGETHer');
+  assert.equal(r.kingdom, 'IH', 'KINGdom');
+  // Function words carry no stress at all, which is what makes the others stand out.
+  for (const word of ['the', 'of', 'was']) {
+    assert.equal(r[word], null, `${word} is unstressed`);
+  }
+});
+
+test('inflections are pronounced from the word they are inflections of', async () => {
+  const r = await ev(() => {
+    const out = {};
+    for (const word of ['having', 'giving', 'coming', 'living', 'waking', 'making',
+      'writing', 'running', 'carried', 'tried', 'cities', 'ruled', 'ruler', 'hopeful',
+      'happiness', 'careless', 'walked', 'listened', 'answered', 'thousand']) {
+      out[word] = phonemesForWord(word).join(' ');
+    }
+    return out;
+  });
+  // A silent e that the spelling drops before -ing still lengthens the vowel...
+  assert.equal(r.waking, 'W EY K IH NG', 'waking, not wacking');
+  assert.equal(r.writing, 'R AY T IH NG');
+  assert.equal(r.ruled, 'R UW L D', 'and it survives an ending: ruled, not rulled');
+  assert.equal(r.ruler, 'R UW L ER');
+  assert.equal(r.hopeful, 'HH OW P F AX L', 'hopeful, not hop-eh-ful');
+  // ...except in the words where it lies, which the dictionary catches first.
+  assert.equal(r.having, 'HH AE V IH NG', 'having, not hay-ving');
+  assert.equal(r.giving, 'G IH V IH NG');
+  assert.equal(r.coming, 'K AH M IH NG');
+  assert.equal(r.living, 'L IH V IH NG');
+  assert.equal(r.running, 'R AH N IH NG', 'a doubled consonant keeps it short');
+  // -ied is one syllable or two depending on the stem it came off.
+  assert.equal(r.tried, 'T R AY D', 'tried rhymes with ride');
+  assert.equal(r.carried, 'K AE R IY D', 'carried does not');
+  assert.equal(r.cities, 'S IH T IY Z');
+  assert.ok(!/S Z$/.test(r.happiness), `happiness ends in one s (${r.happiness})`);
+  assert.equal(r.thousand, 'TH AW Z AX N D');
+  assert.equal(r.walked, 'W AO K T');
+  assert.equal(r.answered, 'AE N S ER D');
+});
+
+test('the dictionary covers the words a story is made of', async () => {
+  const r = await ev(() => {
+    const story = `Long ago, in the years before the great empire, a young prince named
+      Ashoka rode out from the palace at dawn. The old sage was waiting beside the temple
+      gate. Ashoka knelt and asked how a kingdom should be ruled. A ruler who listens, said
+      the sage, will be remembered for a thousand years. Around them the market was waking:
+      farmers carried grain, merchants counted silver coins, and the children shouted.`;
+    const words = story.toLowerCase().match(/[a-z']+/g);
+    const distinct = [...new Set(words)];
+    let known = 0;
+    for (const word of distinct) if (MR_LEXICON[word]) known++;
+    return {
+      distinct: distinct.length, known, entries: Object.keys(MR_LEXICON).length,
+      // Nothing in the dictionary may be empty, and every sound in it must be a sound.
+      broken: Object.entries(MR_LEXICON).filter(([, value]) =>
+        !value.trim() || value.split(' ').some((p) => !MR_PHONEMES[p.replace(/1$/, '')])).map(([k]) => k)
+    };
+  });
+  assert.deepEqual(r.broken, [], 'every entry is made of real phonemes');
+  assert.ok(r.entries > 450, `the dictionary is a real dictionary (${r.entries} words)`);
+  assert.ok(r.known / r.distinct > 0.55,
+    `and it covers most of a page of story (${r.known} of ${r.distinct})`);
+});
+
 test('a spoken line is a plan of sounds, and the mouth comes off the same plan', async () => {
   const r = await ev(() => {
     const text = 'My name is Ashoka.';

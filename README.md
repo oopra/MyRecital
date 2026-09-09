@@ -472,10 +472,14 @@ synthesiser has had since the 1970s:
 
 1. **Letters to sounds.** English spelling is a historical accident, so this is a rule
    engine with context on both sides (*c* is /k/ except before *e*, *i* or *y*; *ow* is
-   different in *slowly* and in *howl*) plus a dictionary of the words no rule will ever
-   get right — *one*, *two*, *said*, *women*, *through*. Endings agree with the sound
-   before them, which is the giveaway when a synthesiser gets it wrong: *walked* ends in a
-   t, *feared* in a d, *wanted* grows a syllable; *cats* hisses where *dogs* buzzes.
+   different in *slowly* and in *howl*) plus a dictionary of about 640 words no rule will
+   ever get right — *one*, *two*, *said*, *women*, *through*, *listen*, *castle*. Between
+   them they cover most of an ordinary page of story. Endings agree with the sound before
+   them, which is the giveaway when a synthesiser gets it wrong: *walked* ends in a t,
+   *feared* in a d, *wanted* grows a syllable; *cats* hisses where *dogs* buzzes. A word
+   that is an inflection of a word in the dictionary is looked up through it — including
+   the letter the spelling dropped, so *waking* goes through *wake* and *carried* through
+   *carry* — which is how *having* stays short while *waking* stays long.
 2. **Sounds to sound.** A vowel is three resonances — the shape of the mouth making it — so
    speech here is a glottal buzz and a breath of noise pushed through a cascade of four
    tracking resonators, with a separate hiss for the sounds made of air alone,
@@ -487,6 +491,17 @@ synthesiser has had since the 1970s:
    drifts down across a phrase, lifts on each stressed syllable, falls away at a full stop
    and climbs at a question mark, and *glides* between those targets rather than stepping.
    A comma is a shorter pause than a full stop, and the sound before either one stretches.
+
+   **Which** syllable takes the stress is decided by the word's ending, because that is how
+   English works, and the endings fall into four kinds: ones that pull the stress onto the
+   syllable before them (na·TION, a·BIL·i·ty — counting back past however many syllables the
+   ending itself has), ones that take it themselves (engi·NEER, Chi·NESE), ones that count
+   back three (pho·TOG·ra·phy, bi·OL·o·gy), and the great majority that change nothing, so
+   the stem keeps what it had (re·MEM·ber·ing, not RE·membering). Prefixes come last and are
+   deliberately few: *be-*, *re-*, *un-*, *dis-* and their kin are real, while *a-*, *em-*
+   and *en-* look like prefixes and mostly are not — ANcient, ANswer, EMperor. Where a
+   dictionary word's stress still comes out wrong, the entry carries its own mark, in the
+   notation every pronouncing dictionary uses: `machine: 'M AX SH IY1 N'`.
 
 **It sounds like a robot.** It is a robot: three formants and a pulse train in a browser
 tab. But it says the words, it costs nothing, it works offline, and — unlike the browser's
@@ -571,9 +586,11 @@ press play — "7 crackles, 5 footsteps, 2 birds, 1 scene of wind."
   Stress is guessed from the shape of the word, not looked up, so long or unusual words land
   it on the wrong syllable; there is no rhythm above the phrase; and an unfamiliar proper
   noun is pronounced the way it is spelled. For a studio voice, use the TTS path.
-- **Its dictionary is short.** A few hundred irregular words, plus rules for the rest. A
-  word the rules get wrong stays wrong until it is added — there is no way to correct a
-  pronunciation in the interface yet.
+- **A word the rules get wrong stays wrong.** The dictionary is about 640 words and the
+  rules handle the rest; an unfamiliar name is pronounced the way it is spelled, and there
+  is no way to correct a pronunciation from the interface yet — it needs an entry in the
+  file. Stress on long or unusual words is a guess from the shape of the ending, and
+  sometimes the wrong one.
 - **Who says what is read from grammar, not meaning.** Quotation marks and speech tags are
   reliable; a line of dialogue with neither goes to the narrator. Every line's speaker is an
   ordinary setting you can change.
