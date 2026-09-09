@@ -189,16 +189,20 @@ function mrProperNouns(text) {
   const evidence = new Map();
   for (const sentence of String(text).split(/(?<=[.!?])\s+/)) {
     const trimmed = sentence.trim();
-    const words = trimmed.match(/[A-Z][a-zA-Z'À-ɏ]{2,}/g) || [];
-    const opener = (trimmed.match(/^[A-Z][a-zA-Z'À-ɏ]{2,}/) || [])[0];
-    words.forEach((word, i) => {
-      const isOpener = i === 0 && word === opener;
+    for (const match of trimmed.matchAll(/[A-Z][a-zA-Z'À-ɏ]{2,}/g)) {
+      const word = match[0];
+      // A word is "opening" if nothing but space and quotation marks comes before it —
+      // which covers the start of a sentence AND the start of a line of dialogue. Without
+      // the quotation marks, the Then in \"Then you can carry water,\" she said scored as a
+      // mid-sentence capital, and the reel gained a character called Then.
+      const preceding = trimmed.slice(0, match.index).replace(/\s+$/, '');
+      const isOpener = preceding === '' || /["'\u201c\u2018([]$/.test(preceding);
       const weak = isOpener && MR_SENTENCE_OPENERS.has(word.toLowerCase());
       const seen = evidence.get(word) || 0;
       // Mid-sentence capitals score 2, sentence openers 1, ordinary opening words 0 —
       // so a real name outranks a "Then" even if "Then" appears more often.
       evidence.set(word, seen + (weak ? 0 : (isOpener ? 1 : 2)));
-    });
+    }
   }
   return [...evidence.entries()]
     .filter(([, score]) => score > 0)

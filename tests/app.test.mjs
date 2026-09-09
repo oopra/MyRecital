@@ -967,7 +967,9 @@ test('narrating a scene re-times it to the length of the line', async () => {
       call: window.__voiceCalls[0],
       duration: scene.duration,
       seconds: scene.narration.seconds,
-      buffered: !!narrationBuffer(scene.id),
+      // Buffers are keyed by line now: a beat can hold several, one per voice.
+      buffered: narrationLines(scene).every((line) => !!narrationBuffer(line.id)),
+      lines: narrationLines(scene).length,
       total: narrationSeconds(ed.project)
     };
   }, WAV_MAKER);
@@ -978,6 +980,7 @@ test('narrating a scene re-times it to the length of the line', async () => {
   // 1s of speech + a 0.4s breath, replacing the 6.5s guess.
   assert.ok(Math.abs(r.duration - 1.4) < 0.11, `scene re-timed to ${r.duration}s`);
   assert.equal(r.buffered, true, 'the decoded audio is ready to play');
+  assert.ok(r.lines >= 1, 'the beat was recorded as at least one line');
   assert.ok(r.total >= 1);
 });
 
@@ -1004,7 +1007,7 @@ test('narration is mixed into the recorded audio, and it ducks the score', async
   void r.musicRestored;
 });
 
-test('the score can be off while narration and effects still play', async () => {
+test('the score can be off while narration, voices and effects still play', async () => {
   const r = await ev(() => {
     ed.project.audio.enabled = false;
     ed.project.scenes[0].narration = { id: 'x', seconds: 1, text: 'x' };
@@ -1020,14 +1023,19 @@ test('the score can be off while narration and effects still play', async () => 
     const nodes = mrAudio.nodes.length;
     mrAudioStop();
     ed.project.audio.sfx = false;
+    // Characters speaking their own lines is a fourth reason to have a soundtrack.
+    const voicesOnly = mrAudioPlay(ed.project, 0);
+    mrAudioStop();
+    ed.project.voices.enabled = false;
     const nothing = mrAudioPlay(ed.project, 0);
     mrAudioStop();
-    return { withNarration, effectsOnly, nodes, nothing };
+    return { withNarration, effectsOnly, nodes, voicesOnly, nothing };
   });
   assert.equal(r.withNarration, true, 'a silent score must not silence the narrator');
   assert.equal(r.effectsOnly, true, 'nor the footsteps');
   assert.ok(r.nodes > 0, 'and they are really scheduled');
-  assert.equal(r.nothing, false, 'with all three off there is nothing to play');
+  assert.equal(r.voicesOnly, true, 'nor the characters speaking');
+  assert.equal(r.nothing, false, 'with all four off there is nothing to play');
 });
 
 test('picture-first mode drops the words to subtitles and calms the camera', async () => {
@@ -2485,6 +2493,173 @@ test('the sound tab reports what the reel will sound like, and one undo puts it 
   assert.match(r.note, /Playful/);
   assert.ok(r.options.includes('auto') && r.options.includes('folk'), 'the styles are offered');
   assert.ok(r.summary.length > 0, 'and the tab says what you will hear');
+});
+
+// ------------------------------------------------------------------ character voices
+
+test('a beat is split into who says what, not read out in one voice', async () => {
+  const r = await ev(() => {
+    const names = ['Aruna', 'Ravi'];
+    const split = (text) => splitSpeech(text, names, null).map((line) => `${line.who || '-'}|${line.text}`);
+    return {
+      tagAfter: split('You have walked a long way, Aruna said.'),
+      quoted: split('Aruna pointed at the pot. "Then you can carry water," she said.'),
+      tagFirst: split('Ravi asked where the road went.'),
+      plain: split('The rain came down on the empty road.'),
+      silence: split('The traveller sat down and said nothing at all.')
+    };
+  });
+  assert.deepEqual(r.tagAfter, ['Aruna|You have walked a long way.', '-|Aruna said.'],
+    `the line and the tag are two voices (${JSON.stringify(r.tagAfter)})`);
+  assert.ok(r.quoted.some((line) => line.startsWith('Aruna|Then you can carry water')),
+    `quoted speech belongs to whoever is attributed it (${JSON.stringify(r.quoted)})`);
+  assert.ok(r.plain.every((line) => line.startsWith('-|')), 'description is the narrator');
+  assert.ok(r.silence.every((line) => line.startsWith('-|')), 'and saying nothing is not speech');
+});
+
+test('every character gets a different voice, and keeps it', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('The old sage waited.\n\nA boy named Ravi ran to him.\n\n' +
+      'Ravi asked about the fire. The sage answered him.', { titleCard: false });
+    directProject(p);
+    const cast = voiceCastOf(p);
+    const profiles = cast.map((name) => voiceProfileFor(p, name));
+    const again = cast.map((name) => voiceProfileFor(p, name));
+    return {
+      cast,
+      profiles: profiles.map((v) => ({ name: v.name, pitch: v.pitch, timbre: v.timbre, rate: v.rate })),
+      stable: JSON.stringify(profiles) === JSON.stringify(again),
+      signatures: new Set(profiles.map((v) => `${v.pitch}/${v.timbre}`)).size
+    };
+  });
+  assert.ok(r.cast.includes('Ravi') && r.cast.includes('Sage'), `the cast has voices (${r.cast.join(',')})`);
+  assert.equal(r.stable, true, 'a name sounds the same every time it is asked for');
+  assert.equal(r.signatures, r.profiles.length, `no two characters share a voice (${JSON.stringify(r.profiles)})`);
+  const boy = r.profiles.find((v) => v.name === 'Ravi');
+  const sage = r.profiles.find((v) => v.name === 'Sage');
+  assert.ok(boy.pitch > sage.pitch + 8, `a boy is pitched well above an old sage (${boy.pitch} vs ${sage.pitch})`);
+  assert.ok(boy.rate > sage.rate, 'and speaks faster');
+});
+
+test('the mouth that moves is the one whose line it is', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Aruna looked up. You have walked a long way, she said.', { titleCard: false });
+    directProject(p);
+    const scene = p.scenes[0];
+    scene.duration = 6;
+    const spans = speechScheduleFor(p, scene);
+    const aruna = scene.stage.actors.find((a) => a.name === 'Aruna');
+    const other = scene.stage.actors.find((a) => a.name !== 'Aruna');
+    const line = spans.find((span) => span.who === 'Aruna');
+    const mid = line ? line.at + line.dur / 2 : 0;
+    const narratorLine = spans.find((span) => span.who === 'Narrator');
+    const narratorMid = narratorLine ? narratorLine.at + narratorLine.dur / 2 : 0;
+    return {
+      spans: spans.map((s) => s.who),
+      arunaOnHerLine: !!actorSpeaking(aruna, scene, mid, p),
+      otherOnHerLine: other ? !!actorSpeaking(other, scene, mid, p) : false,
+      arunaOnNarration: !!actorSpeaking(aruna, scene, narratorMid, p),
+      hasOther: !!other
+    };
+  });
+  assert.ok(r.spans.includes('Aruna'), `Aruna has a line (${r.spans.join(',')})`);
+  assert.equal(r.arunaOnHerLine, true, 'her mouth moves on her line');
+  if (r.hasOther) assert.equal(r.otherOnHerLine, false, 'and nobody else’s does');
+  assert.equal(r.arunaOnNarration, false, 'she does not mouth the narration either');
+});
+
+test('spoken lines fit inside the beat they belong to', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('A short beat.\n\n' +
+      'This is a very much longer beat with a great many more syllables in it than the ' +
+      'first one had, spoken by somebody who will not stop talking.', { titleCard: false });
+    p.scenes.forEach((s) => { s.duration = 3; });
+    const cues = speechCuesFor(p);
+    const times = sceneTimeline(p);
+    const overruns = cues.filter((cue, i) => {
+      const scene = p.scenes.findIndex((s) => s.id === cue.scene);
+      return cue.at + cue.dur > times[scene].end + 0.01 || void i;
+    });
+    return { count: cues.length, overruns: overruns.length, rates: cues.map((c) => +c.rate.toFixed(2)) };
+  });
+  assert.ok(r.count >= 2, 'both beats are spoken');
+  assert.equal(r.overruns, 0, `nothing runs past the end of its beat (${JSON.stringify(r.rates)})`);
+  assert.ok(Math.max(...r.rates) > Math.min(...r.rates), 'a crowded beat is spoken faster, not cut off');
+});
+
+test('two characters really do sound different on the recorded bus', async () => {
+  const r = await ev(async () => {
+    const listen = async (profile) => {
+      mrAudioEnsure();
+      const recorder = new MediaRecorder(mrAudioStream());
+      const chunks = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.start();
+      mrSpeakLine('You have walked a long way to find me here.', mrAudio.ctx.currentTime + 0.05,
+        profile, profile.rate, 1);
+      await new Promise((done) => setTimeout(done, 1500));
+      await new Promise((done) => { recorder.onstop = done; recorder.stop(); });
+      mrAudioStop();
+      const buffer = await new AudioContext().decodeAudioData(await new Blob(chunks).arrayBuffer());
+      const data = buffer.getChannelData(0);
+      let peak = 0, crossings = 0;
+      for (let i = 1; i < data.length; i++) {
+        peak = Math.max(peak, Math.abs(data[i]));
+        if ((data[i - 1] < 0) !== (data[i] < 0)) crossings++;
+      }
+      // Zero crossings per second: a rough but honest measure of how bright and how high
+      // a voice is. Two voices that measure the same are two voices nobody can tell apart.
+      return { peak, zcr: crossings / buffer.duration };
+    };
+    const boy = await listen({ name: 'Boy', pitch: 68, timbre: 'bright', rate: 1.14 });
+    const sage = await listen({ name: 'Sage', pitch: 45, timbre: 'gruff', rate: 0.86 });
+    return { boy, sage };
+  });
+  assert.ok(r.boy.peak > 0.05, `the boy is audible (peak ${r.boy.peak.toFixed(3)})`);
+  assert.ok(r.sage.peak > 0.05, `so is the sage (peak ${r.sage.peak.toFixed(3)})`);
+  assert.ok(r.boy.peak < 0.9 && r.sage.peak < 0.9, 'without clipping the mix');
+  assert.ok(r.boy.zcr > r.sage.zcr * 1.15,
+    `and they do not sound the same (${Math.round(r.boy.zcr)} vs ${Math.round(r.sage.zcr)})`);
+});
+
+test('narration records one line per voice, each in that character’s voice', async () => {
+  const r = await ev(async (wavMaker) => {
+    const wav = new Function(wavMaker)();
+    window.__voiceCalls = [];
+    window.fetch = (url, init) => {
+      window.__voiceCalls.push(JSON.parse(init.body));
+      return Promise.resolve({
+        ok: true, status: 200,
+        text: () => Promise.resolve(JSON.stringify({ b64: wav, mime: 'audio/wav' })),
+        json: () => Promise.resolve({ b64: wav, mime: 'audio/wav' })
+      });
+    };
+    document.getElementById('storyText').value = 'Aruna looked up. You have walked a long way, she said.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    const p = ed.project;
+    p.narration = Object.assign({}, MR_DEFAULT_NARRATION, { provider: 'openai', gap: 0.4 });
+    p.voices = { enabled: true, cast: { Aruna: Object.assign(voiceProfileFor(p, 'Aruna'), { tts: 'shimmer' }) } };
+    const scene = p.scenes.find((s) => s.kind !== 'title');
+    await narrateScene(scene, p, { apiKey: 'k' });
+    const lines = narrationLines(scene);
+    const aruna = scene.stage.actors.find((a) => a.name === 'Aruna');
+    const hers = lines.find((line) => line.who === 'Aruna');
+    return {
+      texts: lines.map((line) => `${line.who || '-'}`),
+      voices: window.__voiceCalls.map((call) => call.voice),
+      offsets: lines.map((line) => +line.at.toFixed(2)),
+      whoAtHerLine: hers ? narrationSpeakerAt(scene, hers.at + hers.seconds / 2) : null,
+      herMouth: hers && aruna ? !!actorSpeaking(aruna, scene, hers.at + hers.seconds / 2, p) : false,
+      voiceCount: narrationVoices(p).length
+    };
+  }, WAV_MAKER);
+  assert.ok(r.texts.length >= 2, `the beat was recorded line by line (${r.texts.join(',')})`);
+  assert.ok(r.voices.includes('shimmer'), `Aruna's line went to her own voice (${r.voices.join(',')})`);
+  assert.ok(r.voices.some((v) => v !== 'shimmer'), 'and the narrator kept the reel default');
+  assert.ok(r.offsets[1] > r.offsets[0], 'the lines are laid one after another');
+  assert.equal(r.whoAtHerLine, 'Aruna', 'the recording knows whose line is playing');
+  assert.equal(r.herMouth, true, 'and it is her mouth that moves');
 });
 
 test('the reel reloads from local storage on the next visit', async () => {

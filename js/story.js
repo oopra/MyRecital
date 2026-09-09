@@ -352,6 +352,10 @@ const MR_DEFAULT_STYLE = {
   imageHint: ''        // appended to every picture search, e.g. "Mahabharata painting"
 };
 
+// Characters speak their own lines by default. It costs nothing, needs no key, and a reel
+// where the child and the old man sound the same is a reel with one character in it.
+const MR_DEFAULT_VOICES = { enabled: true, cast: {} };
+
 const MR_DEFAULT_AUDIO = {
   enabled: true, mood: 'auto', volume: 0.5, accents: true,
   ensemble: 'auto',   // who plays the score; 'auto' follows the period
@@ -411,6 +415,7 @@ function buildStoryboard(text, opts) {
     source: text,
     style: Object.assign({}, MR_DEFAULT_STYLE, o.style),
     audio: Object.assign({}, MR_DEFAULT_AUDIO, o.audio),
+    voices: Object.assign({}, MR_DEFAULT_VOICES, o.voices),
     // Panel drawing settings and the cast description shared by every panel prompt.
     generation: Object.assign({}, typeof MR_DEFAULT_GENERATION !== 'undefined' ? MR_DEFAULT_GENERATION : {}, o.generation),
     narration: Object.assign({}, typeof MR_DEFAULT_NARRATION !== 'undefined' ? MR_DEFAULT_NARRATION : {}, o.narration),

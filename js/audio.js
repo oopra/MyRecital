@@ -268,8 +268,9 @@ function mrAudioPlay(project, fromSeconds) {
   // footsteps and weather. Only when all three are off is there genuinely nothing to play.
   const scoreOn = !!(project.audio && project.audio.enabled);
   const sfxOn = !!(project.audio && project.audio.sfx !== false);
+  const voicesOnNow = typeof voicesOn === 'function' && voicesOn(project);
   const hasNarration = project.scenes.some((s) => s.narration);
-  if (!scoreOn && !sfxOn && !hasNarration) return false;
+  if (!scoreOn && !sfxOn && !voicesOnNow && !hasNarration) return false;
   const ctx = mrAudioEnsure();
   if (!ctx) return false;
   if (ctx.state === 'suspended') ctx.resume();
@@ -286,6 +287,7 @@ function mrAudioPlay(project, fromSeconds) {
     else mrVoice(e.midi, at, dur, e.gain, e.wave, e.type);
   }
   if (sfxOn && typeof mrScheduleSfx === 'function') mrScheduleSfx(project, origin, from);
+  if (typeof mrScheduleSpeech === 'function') mrScheduleSpeech(project, origin, from);
   mrScheduleNarration(project, origin, from);
   mrAudio.playing = true;
   return true;
@@ -304,29 +306,32 @@ function mrScheduleNarration(project, origin, from) {
   let spoke = false;
 
   project.scenes.forEach((scene, i) => {
-    const buffer = narrationBuffer(scene.id);
-    if (!buffer) return;
-    const start = times[i].start;
-    const end = start + buffer.duration;
-    if (end < from) return;
-    const offset = Math.max(0, from - start);
-    const at = origin + Math.max(0, start - from);
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(mrAudio.voice);
-    source.start(at, offset);
-    mrAudio.nodes.push(source);
-    spoke = true;
+    // A beat is a list of lines now, one per voice — narrator, then whoever answers.
+    for (const line of (typeof narrationLines === 'function' ? narrationLines(scene) : [])) {
+      const buffer = narrationBuffer(line.id);
+      if (!buffer) continue;
+      const start = times[i].start + (line.at || 0);
+      const end = start + buffer.duration;
+      if (end < from) continue;
+      const offset = Math.max(0, from - start);
+      const at = origin + Math.max(0, start - from);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(mrAudio.voice);
+      source.start(at, offset);
+      mrAudio.nodes.push(source);
+      spoke = true;
 
-    // Fade the score down just before the line and back up just after, rather than
-    // stepping it, which is audible as a click.
-    const gain = mrAudio.music.gain;
-    gain.setTargetAtTime(duck, Math.max(ctx.currentTime, at - 0.12), 0.06);
-    gain.setTargetAtTime(1, at + (buffer.duration - offset) + 0.05, 0.25);
-    if (mrAudio.sfx) {
-      const half = duck + (1 - duck) * 0.5;
-      mrAudio.sfx.gain.setTargetAtTime(half, Math.max(ctx.currentTime, at - 0.12), 0.06);
-      mrAudio.sfx.gain.setTargetAtTime(1, at + (buffer.duration - offset) + 0.05, 0.25);
+      // Fade the score down just before the line and back up just after, rather than
+      // stepping it, which is audible as a click.
+      const gain = mrAudio.music.gain;
+      gain.setTargetAtTime(duck, Math.max(ctx.currentTime, at - 0.12), 0.06);
+      gain.setTargetAtTime(1, at + (buffer.duration - offset) + 0.05, 0.25);
+      if (mrAudio.sfx) {
+        const half = duck + (1 - duck) * 0.5;
+        mrAudio.sfx.gain.setTargetAtTime(half, Math.max(ctx.currentTime, at - 0.12), 0.06);
+        mrAudio.sfx.gain.setTargetAtTime(1, at + (buffer.duration - offset) + 0.05, 0.25);
+      }
     }
   });
   if (!spoke) {

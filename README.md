@@ -22,6 +22,7 @@ js/story.js       — text → storyboard: sentence splitting, beats, mood, paci
 js/images.js      — found artwork: Wikimedia Commons search, licence filter, image cache
 js/generate.js    — drawn panels: provider adapters, prompt + cast, IndexedDB panel store
 js/voice.js       — narration: TTS adapters, audio storage, and the timing it dictates
+js/voices.js      — character voices: who says what, and what each of them sounds like
 js/render.js      — the picture: artwork or 13 procedural backgrounds, camera, captions
 js/audio.js       — the score: synthesised from the scene moods and an ensemble, no files
 js/sfx.js         — sound effects: footsteps read off the walk, weather, fire, hooves
@@ -326,9 +327,11 @@ With no narration at all, a character set to "talk" still shapes the words of th
 the same shapes, spent at an ordinary speaking rate. That is a guess about rhythm, never
 about content, which is the right way round.
 
-Roughly 1–3¢ per scene. Audio blobs live in IndexedDB beside the panels; the project file
-keeps the length and the id, which is what lets it stay small while the reel stays timed
-to the voice.
+Roughly 1–3¢ per scene — a little more now that a beat with dialogue in it is several
+requests rather than one, because each line goes to the provider in its own character's
+voice. Audio blobs live in IndexedDB beside the panels; the project file keeps each line's
+length, speaker and id, which is what lets it stay small while the reel stays timed to the
+voices.
 
 ## Drawing the panels
 
@@ -432,6 +435,44 @@ The default is **Match the period**: a reel set in ancient India opens on a dron
 hand drum, one set in Rome on the epic ensemble, one in the Industrial age on chamber
 strings. Override it in the Sound tab whenever the story disagrees.
 
+## Character voices
+
+A reel with one narrator is a reel where everybody sounds the same. So the app works out
+who says what, and gives each of them their own voice.
+
+**Splitting the beat.** Before anything is spoken, each beat is cut into lines: quotation
+marks settle it where they exist, and the speech tag does where they do not. *"You have
+walked a long way, she said"* is two voices — the line and the tag — and reading the whole
+sentence in one of them is what makes a reel sound like a robot. Description stays with the
+narrator; *"said nothing at all"* is not speech.
+
+**Two ways to hear them**, sharing everything except the sound — the same lines, the same
+attribution, the same mouth shapes:
+
+- **Spoken** (on by default, no key, no cost). Synthesised here, per syllable, from the
+  same viseme sequence that drives the lips: pitched gibberish, the way a Saturday-morning
+  cartoon or a Nintendo game does it. Because the sound and the mouth come from one list of
+  syllables, the lip sync on this path is exact by construction.
+- **Narrated** (needs a TTS key). Each line is sent to the provider in that character's own
+  voice, and the beat comes back as several recordings laid one after another. The mouth
+  that moves is the one whose line is playing.
+
+**Where a voice comes from.** Every name gets a pitch and a timbre derived from the name
+itself, so Ashoka sounds like Ashoka in every scene and in every reel, and two names rarely
+collide. The band it lands in comes from the character's age — a child sits about two
+octaves above an old man and speaks a third faster — which is the same age you set for the
+drawing. Five timbres (warm, bright, reedy, soft, gruff) and a pitch slider per character
+are in the Sound tab, with a ▶ to hear each one.
+
+A note on the synthesis: a vowel is a *boost* at its formant, not a narrow band around it.
+The first version used a bandpass, which threw away the fundamental — every character, however
+deep, came out as the same thin whistle. Peaking colours the vowel and leaves the pitch you
+can actually hear, which is the whole point.
+
+Whose mouth moves on a *narrator's* line? Nobody's, when the beat has dialogue in it — the
+narrator is not in the picture. A beat that is nothing but description would then have every
+mouth shut, so there the character marked as speaker reads it.
+
 ## Sound effects
 
 Also synthesised, also from nothing: an oscillator and a burst of filtered noise per
@@ -479,6 +520,13 @@ press play — "7 crackles, 5 footsteps, 2 birds, 1 scene of wind."
   guessing game — but expect that first run to be where a shape problem shows up.
 - **The characters are stylised, not photoreal.** They are flat vector cartoons with ink
   outlines — closer to an explainer-video cast than to Pixar.
+- **Spoken voices are not words.** They are pitched syllables in the right rhythm with the
+  right mouth shapes — a cartoon convention, not speech. A child can tell who is talking and
+  how they feel; nobody can tell what they said. The words are on screen, and real speech
+  needs the TTS path and a key.
+- **Who says what is read from grammar, not meaning.** Quotation marks and speech tags are
+  reliable; a line of dialogue with neither goes to the narrator. Every line's speaker is an
+  ordinary setting you can change.
 - **Synthesised effects sound synthesised.** A footstep built from noise and a sine is
   recognisably a footstep in place, on time, panned correctly — and recognisably not a
   recording of a boot on gravel. Surfaces do not vary, and nothing is layered per material.

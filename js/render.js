@@ -962,7 +962,7 @@ function drawSceneBackground(ctx, project, scene, localT, w, h) {
     fn(ctx, w, h, colors, scene, localT + scene.seed * 0.01);
   }
   // The cast stands on the background and moves with the camera.
-  if (typeof drawStage === 'function') drawStage(ctx, scene, localT, w, h, project.style.look);
+  if (typeof drawStage === 'function') drawStage(ctx, scene, localT, w, h, project.style.look, project);
   ctx.restore();
 }
 

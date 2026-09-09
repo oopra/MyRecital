@@ -358,6 +358,8 @@ function syncStyleControls() {
   $('stylePanel').value = style.panel ? '1' : '';
   $('styleProgress').checked = !!style.progressBar;
   $('styleNumbers').checked = !!style.sceneNumbers;
+  $('voicesEnabled').checked = voicesOn(ed.project);
+  renderVoiceList();
   $('audioEnabled').checked = !!audio.enabled;
   $('audioEnsemble').value = audio.ensemble || 'auto';
   $('audioSfx').checked = audio.sfx !== false;
@@ -1556,6 +1558,60 @@ function applyComicPreset() {
   });
 }
 
+// One row per character who could speak, with the two settings that decide what they sound
+// like. Rebuilt whenever the cast changes, like the panel-drawing cast list.
+function renderVoiceList() {
+  const list = $('voiceList');
+  list.innerHTML = '';
+  const cast = voiceCastOf(ed.project);
+  for (const name of cast) {
+    const profile = voiceProfileFor(ed.project, name);
+    const row = document.createElement('div');
+    row.className = 'cast-row';
+
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.className = 'cast-name';
+    label.value = name;
+    label.readOnly = true;
+
+    const timbre = document.createElement('select');
+    fillSelect(timbre, MR_TIMBRE_KEYS, MR_TIMBRE_KEYS.map((k) => MR_TIMBRES[k].name));
+    timbre.value = profile.timbre;
+    timbre.addEventListener('change', () => setVoice(name, { timbre: timbre.value }));
+
+    const pitch = document.createElement('input');
+    pitch.type = 'range';
+    pitch.min = '38'; pitch.max = '74'; pitch.step = '1';
+    pitch.value = String(profile.pitch);
+    pitch.title = 'Pitch';
+    pitch.addEventListener('change', () => setVoice(name, { pitch: Number(pitch.value) }));
+
+    const tryIt = document.createElement('button');
+    tryIt.className = 'btn ghost tiny';
+    tryIt.textContent = '▶';
+    tryIt.title = 'Hear this voice';
+    tryIt.addEventListener('click', () => mrTryVoice(ed.project, name));
+
+    row.appendChild(label);
+    row.appendChild(timbre);
+    row.appendChild(pitch);
+    row.appendChild(tryIt);
+    list.appendChild(row);
+  }
+}
+
+// Changing a voice writes the whole profile, so a character keeps the pitch they were
+// given when you change only their timbre.
+function setVoice(name, changes) {
+  if (ed.suppress) return;
+  const profile = Object.assign({}, voiceProfileFor(ed.project, name), changes);
+  commit('set ' + name + "'s voice", (p) => {
+    p.voices = Object.assign({ enabled: true, cast: {} }, p.voices);
+    p.voices.cast = Object.assign({}, p.voices.cast, { [name]: profile });
+  });
+}
+
 function wireNarration() {
   const providerKeys = Object.keys(MR_VOICE_PROVIDERS);
   fillSelect($('voiceProvider'), providerKeys, providerKeys.map((k) => MR_VOICE_PROVIDERS[k].name));
@@ -1900,6 +1956,12 @@ function wireEditor() {
   $('audioEnsemble').addEventListener('change', () => {
     if (ed.suppress) return;
     commit('set score style', (p) => { p.audio.ensemble = $('audioEnsemble').value; });
+  });
+  $('voicesEnabled').addEventListener('change', () => {
+    if (ed.suppress) return;
+    commit('toggle character voices', (p) => {
+      p.voices = Object.assign({ enabled: true, cast: {} }, p.voices, { enabled: $('voicesEnabled').checked });
+    });
   });
   $('audioSfx').addEventListener('change', () => {
     if (ed.suppress) return;

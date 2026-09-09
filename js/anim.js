@@ -176,10 +176,10 @@ function strideCycles(actor, t, state) {
 
 // The pose an actor is in right now: the right cycle, started at the right moment, and
 // cross-faded from whatever they were doing before.
-function posedFor(actor, scene, localT) {
+function posedFor(actor, scene, localT, project) {
   const state = stateAt(actor, localT);
   const { action, start, previous } = actionStartAt(actor, localT);
-  const speaking = actorSpeaking(actor, scene, localT);
+  const speaking = actorSpeaking(actor, scene, localT, project);
   const tIn = Math.max(0, localT - start);
 
   const opts = { tIn, pace: ageOf(actor.age).pace };
@@ -204,13 +204,31 @@ function posedFor(actor, scene, localT) {
 // With narration it follows the measured loudness of the line AND the shapes of the words
 // in it — real lip sync. Without narration, the words are still known even though their
 // timing is not, so the same shapes are spent at an ordinary speaking rate.
-function actorSpeaking(actor, scene, localT) {
-  if (!actor.speaker) {
+function actorSpeaking(actor, scene, localT, project) {
+  // When the reel speaks its own lines, the mouth that moves is the one the line belongs
+  // to — which is not necessarily whoever is marked as reading the narration.
+  if (project && typeof spokenMouthFor === 'function' && !(scene.narration && scene.narration.seconds)) {
+    const mine = spokenMouthFor(project, scene, actor, localT);
+    if (mine) return mine;
+    if (voicesOn(project)) return false;
+  }
+  if (!actor.speaker && !(scene.narration && scene.narration.seconds)) {
     // Anyone else set to "talk" still moves their mouth; we just have nothing to sync to.
     return false;
   }
   if (scene.narration && scene.narration.seconds) {
     if (localT >= scene.narration.seconds) return false;
+    // A recorded beat is a list of lines with a name on each. The mouth that moves is the
+    // one the line belongs to; the narrator's own reading goes to whoever is marked.
+    if (typeof narrationSpeakerAt === 'function') {
+      const who = narrationSpeakerAt(scene, localT);
+      if (who === undefined) return false;                 // between lines: mouths shut
+      if (who && who !== actor.name) return false;
+      // Narration over a beat that also has dialogue in it belongs to nobody on stage.
+      if (!who && (!actor.speaker || (typeof narrationHasDialogue === 'function' && narrationHasDialogue(scene)))) {
+        return false;
+      }
+    } else if (!actor.speaker) return false;
     const measured = typeof mouthAt === 'function' ? mouthAt(scene, localT) : null;
     return measured != null ? measured : true;
   }
@@ -249,7 +267,7 @@ function stageItems(scene, t) {
 
 // Draw every actor on a scene, back to front by size so a smaller (further) character
 // cannot cover a nearer one.
-function drawStage(ctx, scene, localT, w, h, look) {
+function drawStage(ctx, scene, localT, w, h, look, project) {
   const items = stageItems(scene, localT);
   if (!items.length) return false;
 
@@ -259,7 +277,7 @@ function drawStage(ctx, scene, localT, w, h, look) {
       drawProp(ctx, item, state, w, h);
       continue;
     }
-    const pose = posedFor(item, scene, localT);
+    const pose = posedFor(item, scene, localT, project);
     // The size slider says where they stand in the frame; their age says how tall they are.
     const height = actorHeight(item, state.scale * h);
     ctx.save();

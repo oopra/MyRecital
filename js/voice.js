@@ -54,7 +54,9 @@ async function generateNarrationAudio(text, project, opts) {
     body: JSON.stringify({
       provider: narration.provider,
       model: narration.model || provider.defaultModel,
-      voice: narration.voice || provider.defaultVoice,
+      // A per-character voice wins over the reel's default: that is what makes the king
+      // and the child sound like two people rather than one reader doing both.
+      voice: o.voice || narration.voice || provider.defaultVoice,
       instructions: narration.instructions || '',
       text,
       apiKey: o.apiKey || undefined
@@ -149,11 +151,13 @@ function envelopeFrom(buffer) {
 // audible speech still parts the lips a little, because a mouth that snaps shut between
 // every syllable reads as a glitch.
 function mouthAmountAt(scene, localT) {
-  const narration = scene && scene.narration;
-  if (!narration || !narration.envelope || !narration.envelope.length) return null;
-  const i = Math.floor(localT * MR_ENVELOPE_RATE);
-  if (i < 0 || i >= narration.envelope.length) return 0;
-  const level = narration.envelope[i] / 100;
+  const found = narrationLineAt(scene, localT);
+  if (!found) return narrationLines(scene).length ? 0 : null;
+  const envelope = found.line.envelope;
+  if (!envelope || !envelope.length) return null;
+  const i = Math.floor(found.into * MR_ENVELOPE_RATE);
+  if (i < 0 || i >= envelope.length) return 0;
+  const level = envelope[i] / 100;
   return level < 0.06 ? 0 : Math.min(1, 0.18 + level * 0.85);
 }
 
@@ -259,15 +263,20 @@ function visemesFrom(text, envelope) {
 const MR_SPEAK_UNITS_PER_SECOND = 13;
 let mrSpeakCache = { text: null, sequence: null, total: 0 };
 
-function spokenMouthAt(text, localT) {
+function spokenMouthAt(text, localT, opts) {
   if (!text) return null;
+  const o = opts || {};
   if (mrSpeakCache.text !== text) {
     const sequence = visemeSequence(text);
     mrSpeakCache = { text, sequence, total: sequence.reduce((sum, piece) => sum + piece.weight, 0) };
   }
   const { sequence, total } = mrSpeakCache;
   if (!total) return null;
-  let at = ((localT * MR_SPEAK_UNITS_PER_SECOND) % total + total) % total;
+  const units = localT * MR_SPEAK_UNITS_PER_SECOND * (o.rate || 1);
+  // Looping is for a character talking with nothing to sync to. A line that is actually
+  // being spoken is said once and then the mouth closes.
+  if (o.loop === false && (units < 0 || units > total)) return { open: 0, viseme: 'rest' };
+  let at = ((units % total) + total) % total;
   for (const piece of sequence) {
     at -= piece.weight;
     if (at < 0) {
@@ -285,15 +294,55 @@ function spokenMouthAt(text, localT) {
 function mouthAt(scene, localT) {
   const open = mouthAmountAt(scene, localT);
   if (open == null) return null;
-  const visemes = scene.narration && scene.narration.visemes;
+  const found = narrationLineAt(scene, localT);
+  const visemes = found && found.line.visemes;
   if (!visemes || !visemes.length) return open;
-  const i = Math.floor(localT * MR_ENVELOPE_RATE);
+  const i = Math.floor(found.into * MR_ENVELOPE_RATE);
   const kind = MR_VISEME_KINDS[visemes[Math.max(0, Math.min(visemes.length - 1, i))]] || 'rest';
   return { open, viseme: open > 0.05 ? kind : 'rest' };
 }
 
-function narrationBuffer(sceneId) {
-  return mrNarrationBuffers.get(sceneId) || null;
+// Does this recording contain anybody's dialogue, or is it all narration? It decides
+// whether a narrator's line moves the marked speaker's mouth or nobody's.
+function narrationHasDialogue(scene) {
+  return narrationLines(scene).some((line) => !!line.who);
+}
+
+// Who the recording has speaking at this instant — the name on the line, or null for the
+// narrator's own reading.
+function narrationSpeakerAt(scene, localT) {
+  const found = narrationLineAt(scene, localT);
+  return found ? (found.line.who || null) : undefined;
+}
+
+function narrationBuffer(id) {
+  return mrNarrationBuffers.get(id) || null;
+}
+
+// A scene's narration as an ordered list of lines, whoever recorded it and whenever. Reels
+// made before per-character voices existed hold one blob for the whole beat; they come back
+// as a single line read by the narrator, and everything downstream stops caring.
+function narrationLines(scene) {
+  const narration = scene && scene.narration;
+  if (!narration) return [];
+  if (narration.lines && narration.lines.length) return narration.lines;
+  // The id is what plays the audio; the envelope is what moves the mouth. A scene can have
+  // the second without the first (a project file opened on a machine that has no blobs, or
+  // a test), and the mouth should still work.
+  if (!narration.id && !(narration.envelope && narration.envelope.length)) return [];
+  return [{
+    id: narration.id, who: null, text: narration.text, mime: narration.mime,
+    seconds: narration.seconds, at: 0, envelope: narration.envelope, visemes: narration.visemes
+  }];
+}
+
+// Which line is being spoken at this instant, and how far into it we are.
+function narrationLineAt(scene, localT) {
+  for (const line of narrationLines(scene)) {
+    const from = line.at || 0;
+    if (localT >= from && localT <= from + line.seconds) return { line, into: localT - from };
+  }
+  return null;
 }
 
 // Narrate one scene, store it, and re-time the scene to fit what was actually said.
@@ -301,17 +350,42 @@ function narrationBuffer(sceneId) {
 async function narrateScene(scene, project, opts) {
   const o = opts || {};
   const narration = Object.assign({}, MR_DEFAULT_NARRATION, project.narration);
-  const { blob, mime } = await generateNarrationAudio(scene.text, project, o);
-  const id = `${scene.id}-voice-${Date.now().toString(36)}`;
-  if (scene.narration && scene.narration.id) deleteNarrationBlob(scene.narration.id).catch(() => {});
-  await saveNarrationBlob(id, blob);
-  const buffer = await decodeNarration(scene.id, blob);
-  const envelope = envelopeFrom(buffer);
-  scene.narration = {
-    id, mime, seconds: buffer.duration, text: scene.text, at: Date.now(),
-    envelope, visemes: visemesFrom(scene.text, envelope)
-  };
-  scene.duration = Math.round((buffer.duration + (narration.gap || 0.45)) * 10) / 10;
+  const gap = narration.gap != null ? narration.gap : 0.45;
+
+  // The beat is split into who says what before a single request is made, so each line
+  // goes to the provider in that character's own voice. A beat with no dialogue in it is
+  // one line, read by the narrator, exactly as before.
+  const cast = typeof voiceCastOf === 'function' ? voiceCastOf(project).filter((n) => n !== 'Narrator') : [];
+  const lines = typeof speechLinesFor === 'function'
+    ? speechLinesFor(scene, cast)
+    : [{ who: null, text: scene.text }];
+
+  for (const line of narrationLines(scene)) deleteNarrationBlob(line.id).catch(() => {});
+
+  const recorded = [];
+  let at = 0;
+  for (const line of lines) {
+    if (!line.text.trim()) continue;
+    const profile = typeof voiceProfileFor === 'function' ? voiceProfileFor(project, line.who || 'Narrator') : null;
+    const { blob, mime } = await generateNarrationAudio(line.text, project,
+      Object.assign({}, o, { voice: (profile && profile.tts) || undefined }));
+    const id = `${scene.id}-voice-${recorded.length}-${Date.now().toString(36)}`;
+    await saveNarrationBlob(id, blob);
+    const buffer = await decodeNarration(id, blob);
+    const envelope = envelopeFrom(buffer);
+    recorded.push({
+      id, who: line.who || null, text: line.text, mime, seconds: buffer.duration, at,
+      envelope, visemes: visemesFrom(line.text, envelope)
+    });
+    // Lines within a beat get a shorter pause than the pause at the end of the beat: a
+    // reply follows a question faster than a scene follows a scene.
+    at += buffer.duration + gap * 0.5;
+  }
+  if (!recorded.length) return null;
+
+  const spoken = recorded[recorded.length - 1].at + recorded[recorded.length - 1].seconds;
+  scene.narration = { lines: recorded, seconds: spoken, text: scene.text, at: Date.now() };
+  scene.duration = Math.round((spoken + gap) * 10) / 10;
   return scene.narration;
 }
 
@@ -319,19 +393,17 @@ async function narrateScene(scene, project, opts) {
 async function restoreNarration(project) {
   let restored = 0;
   for (const scene of project.scenes) {
-    if (!scene.narration || !scene.narration.id) continue;
-    try {
-      const blob = await loadNarrationBlob(scene.narration.id);
-      if (blob) {
-        const buffer = await decodeNarration(scene.id, blob);
-        if (!scene.narration.envelope) scene.narration.envelope = envelopeFrom(buffer);
+    for (const line of narrationLines(scene)) {
+      try {
+        const blob = await loadNarrationBlob(line.id);
+        if (!blob) continue;
+        const buffer = await decodeNarration(line.id, blob);
+        if (!line.envelope) line.envelope = envelopeFrom(buffer);
         // Reels made before lip sync existed get their mouth shapes on the way back in.
-        if (!scene.narration.visemes) {
-          scene.narration.visemes = visemesFrom(scene.narration.text || scene.text, scene.narration.envelope);
-        }
+        if (!line.visemes) line.visemes = visemesFrom(line.text || scene.text, line.envelope);
         restored++;
-      }
-    } catch { /* a scene with no audio simply plays silent */ }
+      } catch { /* a line with no audio simply plays silent */ }
+    }
   }
   return restored;
 }
@@ -339,4 +411,13 @@ async function restoreNarration(project) {
 // Total spoken seconds, for the UI's "this reel is 52s of speech" line.
 function narrationSeconds(project) {
   return Math.round(project.scenes.reduce((sum, s) => sum + (s.narration ? s.narration.seconds : 0), 0) * 10) / 10;
+}
+
+// How many separate voices a recorded reel actually uses, for the UI to report.
+function narrationVoices(project) {
+  const who = new Set();
+  for (const scene of project.scenes) {
+    for (const line of narrationLines(scene)) who.add(line.who || 'Narrator');
+  }
+  return [...who];
 }
