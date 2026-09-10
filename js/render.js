@@ -545,6 +545,82 @@ const MR_BG_FUNCTIONS = {
 
 // ---------------------------------------------------------------- camera motion
 
+// ---------------------------------------------------------------- shots
+//
+// Where the camera stands. Until this existed the camera had eight moves and no subject:
+// it could drift and zoom, but it could not look AT anybody, so every beat was the same
+// wide shot of a stage. A story for children is mostly faces — the sage answering, the boy
+// laughing — and a face needs a frame that contains a face.
+//
+// `aim` is how far up the figure to centre, as a fraction of its height: chest for a mid
+// shot, head for a close-up. `lead` leaves a little headroom so the subject is not dead
+// centre, which reads as a passport photograph.
+const MR_SHOT_SIZES = {
+  wide:  { name: 'Wide — the whole stage', scale: 1, aim: 0.5, lead: 0 },
+  mid:   { name: 'Mid — head and shoulders', scale: 1.8, aim: 0.78, lead: 0.03 },
+  close: { name: 'Close — the face', scale: 3, aim: 0.86, lead: 0.02 }
+};
+
+const MR_SHOT_KEYS = Object.keys(MR_SHOT_SIZES);
+
+function shotOf(scene) {
+  const shot = scene && scene.shot;
+  if (!shot || !MR_SHOT_SIZES[shot.size] || shot.size === 'wide') return null;
+  return { size: shot.size, on: shot.on || '', spec: MR_SHOT_SIZES[shot.size] };
+}
+
+// Which point on the stage the shot is looking at, in frame fractions, or null when there
+// is nobody to look at — an empty stage cannot have a close-up of anything.
+function shotSubject(scene, localT, name) {
+  const actors = (scene.stage && scene.stage.actors) || [];
+  if (!actors.length) return null;
+  const chosen = actors.find((actor) => actor.name === name) ||
+    (typeof balloonSpeaker === 'function' && !name ? null : null) || actors[0];
+  const state = stateAt(chosen, localT);
+  const height = typeof actorHeight === 'function' ? actorHeight(chosen, state.scale) : state.scale;
+  return { x: state.x, y: state.y, height, actor: chosen };
+}
+
+// The framing, as the same {scale, x, y} the camera moves use, so the two compose.
+function shotFrame(scene, localT) {
+  const shot = shotOf(scene);
+  if (!shot) return { scale: 1, x: 0, y: 0 };
+  const subject = shotSubject(scene, localT, shot.on);
+  if (!subject) return { scale: 1, x: 0, y: 0 };
+  const k = shot.spec.scale;
+  const aimY = subject.y - subject.height * shot.spec.aim;
+  // What sits in the middle of the screen. Clamped so the frame never travels past the
+  // edge of the picture and shows nothing.
+  const half = 0.5 / k;
+  const centreX = Math.max(half, Math.min(1 - half, subject.x));
+  const centreY = Math.max(half, Math.min(1 - half, aimY + shot.spec.lead));
+  return { scale: k, x: k * (0.5 - centreX), y: k * (0.5 - centreY) };
+}
+
+// Shot and move together. The move is applied on top of the framing, which is why the
+// scales multiply and the framing offset is scaled by the move.
+function frameFor(scene, progress, intensityScale, localT) {
+  const move = cameraFor(scene, progress, intensityScale);
+  const shot = shotFrame(scene, localT);
+  if (shot.scale === 1 && !shot.x && !shot.y) return move;
+  return {
+    scale: move.scale * shot.scale,
+    x: move.x + move.scale * shot.x,
+    y: move.y + move.scale * shot.y,
+    rotate: move.rotate
+  };
+}
+
+// Where a point on the stage ends up on screen, once the camera has had its say. The
+// speech balloons need this: they are drawn outside the camera transform, so without it a
+// close-up leaves the balloon pointing at where the speaker used to be.
+function stageToScreen(cam, fx, fy) {
+  return {
+    x: 0.5 + cam.x + cam.scale * (fx - 0.5),
+    y: 0.5 + cam.y + cam.scale * (fy - 0.5)
+  };
+}
+
 // The camera transform for a scene at progress p (0..1). Returned as numbers rather than
 // applied, so callers can dampen it (the preview strip renders thumbnails un-moved).
 function cameraFor(scene, p, intensityScale) {
@@ -701,16 +777,29 @@ function drawBalloon(ctx, project, scene, localT, w, h) {
   const speaker = balloonSpeaker(scene, localT);
   const font = fontOf(project);
   const base = captionBase(w, h);
-  const headTop = speaker ? (speaker.state.y - speaker.state.scale) * h : h * 0.35;
-  const anchorX = speaker ? speaker.state.x * w : w / 2;
+  // Under the camera the speaker is not where the stage says they are.
+  const progress = scene.duration ? mrClamp01(localT / scene.duration) : 0;
+  const cam = frameFor(scene, progress, project.style.motionScale, localT);
+  const height = speaker ? actorHeight(speaker.actor, speaker.state.scale) : 0;
+  const head = speaker
+    ? stageToScreen(cam, speaker.state.x, speaker.state.y - height)
+    : { x: 0.5, y: 0.35 };
+  const headTop = head.y * h;
+  const anchorX = head.x * w;
 
-  // The balloon has to fit in the gap ABOVE the speaker's head. Fit the text to that gap
-  // rather than to an arbitrary box, or a long line grows a balloon straight over the
-  // face it belongs to — which is the one thing a speech balloon must never do.
-  const gapAbove = Math.max(h * 0.12, headTop - h * 0.1);
+  // The balloon goes in whichever gap is bigger — above the head or below the chin — and
+  // the text is fitted to THAT gap rather than to an arbitrary box. A long line otherwise
+  // grows a balloon straight over the face it belongs to, which is the one thing a speech
+  // balloon must never do. In a close-up there is no room above at all, so it goes below.
+  const roomAbove = headTop - h * 0.06;
+  const roomBelow = h - (headTop + h * 0.16);
+  const below = roomAbove < h * 0.22 && roomBelow > roomAbove;
+  // A balloon below the speaker is capped at a third of the frame and pinned to the
+  // bottom: in a close-up it should cover a collarbone, never a face.
+  const gap = below ? Math.min(roomBelow, h * 0.34) : Math.max(h * 0.12, roomAbove);
   const maxWidth = Math.min(w * 0.62, h * 0.66);
-  const fit = fitCaption(ctx, scene.text, font, { w: maxWidth - base * 0.06, h: gapAbove }, {
-    maxSize: base * 0.046, minSize: base * 0.024, maxLines: 5
+  const fit = fitCaption(ctx, scene.text, font, { w: maxWidth - base * 0.06, h: gap }, {
+    maxSize: base * (below ? 0.04 : 0.046), minSize: base * 0.024, maxLines: below ? 4 : 5
   });
   const padding = fit.size * 0.7;
   const lineHeight = fit.size * 1.2;
@@ -720,8 +809,10 @@ function drawBalloon(ctx, project, scene, localT, w, h) {
   }));
   const boxW = textWidth + padding * 2;
   const boxH = fit.lines.length * lineHeight + padding * 1.6;
-  // Sit above the head, never off the top of the frame, never off either side.
-  const boxY = Math.max(h * 0.03, headTop - boxH - h * 0.055);
+  // Never off the top or bottom of the frame, never off either side.
+  const boxY = below
+    ? h - boxH - h * 0.04
+    : Math.max(h * 0.03, headTop - boxH - h * 0.055);
   const boxX = Math.min(Math.max(anchorX - boxW / 2, w * 0.03), Math.max(w * 0.03, w - boxW - w * 0.03));
 
   const appear = mrClamp01(localT / 0.25) * mrClamp01((scene.duration - localT) / 0.25);
@@ -735,21 +826,28 @@ function drawBalloon(ctx, project, scene, localT, w, h) {
   ctx.fill();
   ctx.stroke();
 
-  // The tail runs from the balloon's bottom edge DOWN to just above the head — always
-  // below the balloon, whatever the layout did.
+  // The tail runs from the balloon's near edge to the speaker: down to just above the head
+  // when the balloon is above them, up to just below the chin when it is below.
   const tailX = Math.min(Math.max(anchorX, boxX + boxW * 0.2), boxX + boxW * 0.8);
-  const tipY = Math.max(boxY + boxH + h * 0.015, headTop - h * 0.012);
+  const edgeY = below ? boxY + 2 : boxY + boxH - 2;
+  // Stop the tail at the chin — measured from the head the camera is actually drawing, not
+  // from a fixed fraction of the frame, or a close-up runs it up over the mouth.
+  const chinY = headTop + Math.max(h * 0.02, height * cam.scale * h * 0.22);
+  const tipY = below
+    ? Math.min(boxY - h * 0.015, chinY)
+    : Math.max(boxY + boxH + h * 0.015, headTop - h * 0.012);
   ctx.beginPath();
-  ctx.moveTo(tailX - boxW * 0.09, boxY + boxH - 2);
-  ctx.lineTo(tailX + boxW * 0.06, boxY + boxH - 2);
+  ctx.moveTo(tailX - boxW * 0.09, edgeY);
+  ctx.lineTo(tailX + boxW * 0.06, edgeY);
   ctx.lineTo(anchorX + (tailX > anchorX ? boxW * 0.02 : -boxW * 0.02), tipY);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
   // Cover the seam the tail's outline leaves across the balloon's edge.
+  const seamY = below ? boxY + ctx.lineWidth * 0.7 : boxY + boxH - ctx.lineWidth * 0.7;
   ctx.beginPath();
-  ctx.moveTo(tailX - boxW * 0.085, boxY + boxH - ctx.lineWidth * 0.7);
-  ctx.lineTo(tailX + boxW * 0.055, boxY + boxH - ctx.lineWidth * 0.7);
+  ctx.moveTo(tailX - boxW * 0.085, seamY);
+  ctx.lineTo(tailX + boxW * 0.055, seamY);
   ctx.strokeStyle = '#fdf7ea';
   ctx.stroke();
 
@@ -951,7 +1049,7 @@ function drawSceneBackground(ctx, project, scene, localT, w, h) {
     ? paletteOf(project).slice(0, 3).concat([scene.accent, paletteOf(project)[4]])
     : paletteOf(project);
   const progress = scene.duration ? mrClamp01(localT / scene.duration) : 0;
-  const cam = cameraFor(scene, progress, project.style.motionScale);
+  const cam = frameFor(scene, progress, project.style.motionScale, localT);
   ctx.save();
   ctx.translate(w / 2 + cam.x * w, h / 2 + cam.y * h);
   ctx.rotate(cam.rotate);

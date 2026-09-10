@@ -2209,6 +2209,139 @@ test('with no narration the mouth still speaks the words it has', async () => {
   assert.ok(r.closed > 0, 'and shuts between words');
 });
 
+// ------------------------------------------------------------------ shots
+
+test('a close shot frames the face, and a wide shot frames the stage', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Aruna looked up from her wheel.', { titleCard: false });
+    directProject(p);
+    const scene = p.scenes[0];
+    scene.duration = 4; scene.motion = 'none'; scene.captionStyle = 'none';
+    const name = scene.stage.actors[0].name;
+    const shot = (size) => {
+      scene.shot = { size, on: name };
+      const c = document.createElement('canvas');
+      c.width = 320; c.height = 180;
+      const x = c.getContext('2d');
+      renderFrame(x, p, 2, { width: 320, height: 180 });
+      const d = x.getImageData(0, 0, 320, 180).data;
+      // Skin is the one colour on the frame that is only ever a face or a hand.
+      let count = 0, sumX = 0, sumY = 0, top = 180;
+      for (let y = 0; y < 180; y++) {
+        for (let px = 0; px < 320; px++) {
+          const i = (y * 320 + px) * 4;
+          const [red, green, blue] = [d[i], d[i + 1], d[i + 2]];
+          if (red > 150 && red < 250 && green > 90 && green < 200 && blue > 50 && blue < 170 && red > blue + 45) {
+            count++; sumX += px; sumY += y; top = Math.min(top, y);
+          }
+        }
+      }
+      return { count, cx: count ? sumX / count / 320 : 0, cy: count ? sumY / count / 180 : 0, top: top / 180 };
+    };
+    return { wide: shot('wide'), mid: shot('mid'), close: shot('close') };
+  });
+  assert.ok(r.wide.count > 20, 'the wide shot shows a face at all');
+  assert.ok(r.mid.count > r.wide.count * 2.5,
+    `a mid shot is much closer (${r.mid.count} skin pixels vs ${r.wide.count})`);
+  assert.ok(r.close.count > r.mid.count * 1.6,
+    `and a close-up closer still (${r.close.count} vs ${r.mid.count})`);
+  // The subject is centred left-to-right and sits in the upper half, not jammed to an edge.
+  for (const size of ['mid', 'close']) {
+    assert.ok(Math.abs(r[size].cx - 0.5) < 0.12, `${size} centres the subject (${r[size].cx.toFixed(2)})`);
+    assert.ok(r[size].top > 0.04 && r[size].cy < 0.65,
+      `${size} leaves headroom without burying them (top ${r[size].top.toFixed(2)}, centre ${r[size].cy.toFixed(2)})`);
+  }
+});
+
+test('a reel with no shots set renders exactly as it did before shots existed', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Aruna looked up from her wheel.', { titleCard: false });
+    directProject(p);
+    const scene = p.scenes[0];
+    scene.duration = 4;
+    const frame = () => {
+      const c = document.createElement('canvas');
+      c.width = 200; c.height = 112;
+      const x = c.getContext('2d');
+      renderFrame(x, p, 2, { width: 200, height: 112 });
+      return c.toDataURL();
+    };
+    delete scene.shot;
+    const none = frame();
+    scene.shot = { size: 'wide', on: '' };
+    const wide = frame();
+    return { same: none === wide };
+  });
+  assert.equal(r.same, true, 'wide is the identity framing, so old reels are untouched');
+});
+
+test('the speech balloon follows the camera and keeps off the face', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Aruna looked up. "You have walked a long way," she said.', { titleCard: false });
+    directProject(p);
+    const scene = p.scenes[0];
+    scene.duration = 4; scene.motion = 'none'; scene.captionStyle = 'balloon';
+    const name = scene.stage.actors[0].name;
+    const look = (size) => {
+      scene.shot = { size, on: name };
+      const c = document.createElement('canvas');
+      c.width = 320; c.height = 180;
+      const x = c.getContext('2d');
+      renderFrame(x, p, 2, { width: 320, height: 180 });
+      const d = x.getImageData(0, 0, 320, 180).data;
+      // The balloon is the one near-white shape in the frame; the eyes are white too, so
+      // measure the biggest run of it per row instead of counting pixels.
+      let balloonTop = 180, balloonRows = 0, eyes = 0;
+      for (let y = 0; y < 180; y++) {
+        let run = 0, best = 0, skin = 0;
+        for (let px = 0; px < 320; px++) {
+          const i = (y * 320 + px) * 4;
+          const pale = d[i] > 235 && d[i + 1] > 225 && d[i + 2] > 205;
+          run = pale ? run + 1 : 0;
+          best = Math.max(best, run);
+          const [red, green, blue] = [d[i], d[i + 1], d[i + 2]];
+          if (red > 150 && red < 250 && green > 90 && green < 200 && blue > 50 && blue < 170 && red > blue + 45) skin++;
+        }
+        if (best > 40) { balloonTop = Math.min(balloonTop, y); balloonRows++; }
+        if (skin > 6) eyes = Math.max(eyes, y);      // the lowest row with a real face on it
+      }
+      return { balloonTop: balloonTop / 180, balloonRows, faceBottom: eyes / 180 };
+    };
+    return { wide: look('wide'), close: look('close') };
+  });
+  assert.ok(r.wide.balloonRows > 5 && r.close.balloonRows > 5, 'both frames have a balloon');
+  // Wide: above the speaker. Close: there is no room above, so it drops below the face.
+  assert.ok(r.wide.balloonTop < 0.35, `wide puts it overhead (${r.wide.balloonTop.toFixed(2)})`);
+  assert.ok(r.close.balloonTop > 0.45, `a close-up puts it below (${r.close.balloonTop.toFixed(2)})`);
+});
+
+test('the director opens wide and cuts closer for dialogue', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard(
+      'The old sage waited at the temple.\n\n' +
+      'Ashoka knelt before him. "Teach me," he said.\n\n' +
+      '"Even a child may teach a king," the sage answered.\n\n' +
+      'The whole village came to listen, and nobody spoke.', { titleCard: false });
+    directProject(p);
+    return p.scenes.filter((s) => s.stage && s.stage.actors.length).map((s) => ({
+      shot: (s.shot || {}).size, on: (s.shot || {}).on,
+      cast: s.stage.actors.length,
+      speaker: (s.stage.actors.find((a) => a.speaker) || {}).name
+    }));
+  });
+  assert.ok(r.length >= 3, 'the reel is staged');
+  assert.equal(r[0].shot, 'wide', 'the first staged beat establishes the place');
+  const closer = r.filter((scene) => scene.shot === 'mid' || scene.shot === 'close');
+  assert.ok(closer.length >= 1, `dialogue gets a closer shot (${r.map((s) => s.shot).join(',')})`);
+  for (const scene of closer) {
+    assert.equal(scene.on, scene.speaker, 'and it is framed on whoever is speaking');
+  }
+  // A crowd stays wide: a close-up of three people is a close-up of nobody.
+  for (const scene of r) {
+    if (scene.cast >= 3) assert.equal(scene.shot, 'wide', 'a crowd stays wide');
+  }
+});
+
 test('the character panel follows the scene you are looking at', async () => {
   const r = await ev(() => {
     document.getElementById('storyText').value =

@@ -409,6 +409,7 @@ function directProject(project, opts) {
   const slots = new Map();
   let carried = [];
   let staged = 0, spoken = 0, propped = 0;
+  let closeUp = false;
 
   for (const scene of project.scenes) {
     const result = directScene(scene, cast, carried, project, slots, ages, genders);
@@ -419,6 +420,19 @@ function directProject(project, opts) {
       staged++;
     }
     if (result.props.length) propped++;
+    // The shot. The first staged beat establishes where we are; after that a line of
+    // dialogue wants to be close enough to see who is saying it, and the sizes alternate so
+    // that a conversation is not one unchanging frame. A crowd stays wide, because a
+    // close-up of three people is a close-up of nobody.
+    if (result.actors.length) {
+      const crowd = result.actors.length >= 3;
+      if (staged > 1 && result.speaker && !crowd) {
+        scene.shot = { size: closeUp ? 'close' : 'mid', on: result.speaker };
+        closeUp = !closeUp;
+      } else {
+        scene.shot = { size: 'wide', on: '' };
+      }
+    }
     if (result.speaker) {
       spoken++;
       // Dialogue wants a balloon; narration keeps whatever the reel is using.

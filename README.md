@@ -247,6 +247,36 @@ reveal and the emphasis colouring, and calms the camera. The picture holds the f
 the words get out of the way. Choose it whenever there are people on screen carrying the
 scene; the words-first look is for reels that *are* typography.
 
+## Shots
+
+The camera had eight moves and no subject: it could drift and zoom, but it could not look
+**at** anybody, so every beat was the same wide shot of a stage. A story for children is
+mostly faces — the sage answering, the boy laughing — and a face needs a frame with a face
+in it.
+
+Each scene now has a **Shot** and a **Framed on**, in the Scene tab:
+
+| Shot | What it frames |
+| --- | --- |
+| Wide | The whole stage. The default, and identical to how the reel rendered before shots existed. |
+| Mid | Head and shoulders, with headroom. |
+| Close | The face. |
+
+The framing follows the subject: they can walk while the shot holds them. It is clamped so
+the frame never travels past the edge of the picture, and it composes with the camera move
+rather than replacing it — a slow drift across a close-up is a drift across a close-up.
+
+Two things had to move with it. The speech balloon is drawn outside the camera transform,
+so it now asks where the speaker ended up on screen; without that a close-up leaves the
+balloon pointing at where the speaker used to be. And in a tight shot there is no room
+above a head, so the balloon drops **below** the chin, pinned to the bottom of the frame and
+capped at a third of it — in a close-up a balloon should cover a collarbone, never a face.
+
+The auto-director uses all three: the first staged beat opens wide to establish the place,
+a beat with dialogue cuts to the speaker and alternates mid and close so a conversation is
+not one unchanging frame, and a crowd stays wide, because a close-up of three people is a
+close-up of nobody.
+
 ## When it happens
 
 A history reel is wrong in a way a fable never is: if the people in it are dressed for the

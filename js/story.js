@@ -334,6 +334,10 @@ function makeScene(text, opts) {
   };
 }
 
+// A shot is a size and a subject: {size:'close', on:'Ashoka'}. Absent means the wide shot
+// the reel has always had, so every scene made before shots existed is unchanged.
+const MR_DEFAULT_SHOT = { size: 'wide', on: '' };
+
 const MR_DEFAULT_STYLE = {
   palette: 'midnight',
   font: 'display',

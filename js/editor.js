@@ -294,6 +294,17 @@ function fillSelect(select, values, labels) {
   });
 }
 
+// The "framed on" list is the cast of the scene you are looking at, so it has to be rebuilt
+// with the scene rather than filled once at boot.
+function syncShotControls(scene) {
+  const shot = Object.assign({}, MR_DEFAULT_SHOT, scene.shot);
+  const names = ((scene.stage && scene.stage.actors) || []).map((a) => a.name);
+  fillSelect($('sceneShotOn'), [''].concat(names), ['Whoever is speaking'].concat(names));
+  $('sceneShot').value = shot.size;
+  $('sceneShotOn').value = names.indexOf(shot.on) >= 0 ? shot.on : '';
+  $('sceneShotOn').disabled = shot.size === 'wide';
+}
+
 function buildSelects() {
   fillSelect($('sceneBackground'), MR_BACKGROUNDS);
   fillSelect($('sceneMotion'), MR_MOTIONS);
@@ -301,6 +312,7 @@ function buildSelects() {
   fillSelect($('sceneCaption'), MR_CAPTION_STYLES);
   fillSelect($('scenePosition'), ['top', 'center', 'bottom']);
   fillSelect($('sceneMood'), MR_MOOD_ORDER.concat(['neutral']));
+  fillSelect($('sceneShot'), MR_SHOT_KEYS, MR_SHOT_KEYS.map((k) => MR_SHOT_SIZES[k].name));
   const paletteKeys = Object.keys(MR_PALETTES);
   fillSelect($('stylePalette'), paletteKeys, paletteKeys.map((k) => MR_PALETTES[k].name));
   const fontKeys = Object.keys(MR_FONTS);
@@ -338,6 +350,7 @@ function syncInspector() {
   $('sceneIntensity').value = String(scene.intensity);
   $('intensityValue').textContent = Number(scene.intensity).toFixed(2);
   $('sceneAccent').value = scene.accent || accentOf(ed.project, null);
+  syncShotControls(scene);
   ed.suppress = false;
 }
 
@@ -1875,6 +1888,14 @@ function wireEditor() {
     $(id).addEventListener('change', () => {
       if (ed.suppress) return;
       editScene('set ' + field, (scene) => { scene[field] = $(id).value; });
+    });
+  }
+  for (const [id, field] of [['sceneShot', 'size'], ['sceneShotOn', 'on']]) {
+    $(id).addEventListener('change', () => {
+      if (ed.suppress) return;
+      editScene('set shot', (scene) => {
+        scene.shot = Object.assign({}, MR_DEFAULT_SHOT, scene.shot, { [field]: $(id).value });
+      });
     });
   }
   $('sceneEmphasis').addEventListener('change', () => editScene('set emphasis', (scene) => {

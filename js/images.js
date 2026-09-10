@@ -191,16 +191,16 @@ function mrProperNouns(text) {
     const trimmed = sentence.trim();
     for (const match of trimmed.matchAll(/[A-Z][a-zA-Z'À-ɏ]{2,}/g)) {
       const word = match[0];
-      // A word is "opening" if nothing but space and quotation marks comes before it —
-      // which covers the start of a sentence AND the start of a line of dialogue. Without
-      // the quotation marks, the Then in \"Then you can carry water,\" she said scored as a
-      // mid-sentence capital, and the reel gained a character called Then.
       const preceding = trimmed.slice(0, match.index).replace(/\s+$/, '');
-      const isOpener = preceding === '' || /["'\u201c\u2018([]$/.test(preceding);
-      const weak = isOpener && MR_SENTENCE_OPENERS.has(word.toLowerCase());
+      // Three positions, and they are worth three different amounts. A capital in the
+      // MIDDLE of a sentence is strong evidence of a name. At the START it is weak, and
+      // worth nothing at all for the ordinary words sentences begin with. And straight
+      // after a quotation mark it is worth nothing ever: every line of dialogue starts a
+      // sentence, so "Teach me," he said would otherwise cast a character called Teach.
+      const quoted = /["'\u201c\u2018([]$/.test(preceding);
+      const isOpener = preceding === '' || quoted;
+      const weak = quoted || (isOpener && MR_SENTENCE_OPENERS.has(word.toLowerCase()));
       const seen = evidence.get(word) || 0;
-      // Mid-sentence capitals score 2, sentence openers 1, ordinary opening words 0 —
-      // so a real name outranks a "Then" even if "Then" appears more often.
       evidence.set(word, seen + (weak ? 0 : (isOpener ? 1 : 2)));
     }
   }
