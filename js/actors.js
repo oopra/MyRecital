@@ -786,6 +786,58 @@ function mrShoe(ctx, x, y, angle, size, facing, colour) {
 // colours on top. That outline is not decoration — flat colours disappear against a
 // background of similar value (dark trousers on a dark field read as no legs at all), and
 // the ink is what keeps a character readable over anything.
+// Every measurement of a figure, derived from its height. Pulled out of drawActor so that
+// anything else needing to know where a hand is — a prop being carried, for one — asks the
+// same arithmetic rather than a copy of it that will drift.
+function actorMetrics(actor, height, lookName) {
+  const look = lookOf(actor.look || lookName);
+  const body = MR_BODIES[actor.body] || MR_BODIES.average;
+  const age = ageOf(actor.age);
+  const headR = height * body.head * look.head * age.head / 2;
+  const legLength = height * body.legs * age.legs;
+  const torsoLength = height * body.torso;
+  const hipY = -legLength;
+  const shoulderY = hipY - torsoLength;
+  return {
+    look, body, age, headR, legLength, torsoLength, hipY, shoulderY,
+    headY: shoulderY - height * 0.02 - headR,
+    hipHalf: height * body.hips / 2,
+    shoulderHalf: height * body.shoulders / 2,
+    armY: shoulderY + height * 0.025,
+    armLength: height * 0.34,
+    limbWidth: height * 0.052 * look.limb * age.limb,
+    outline: Math.max(1.5, height * 0.013 * look.inkWeight)
+  };
+}
+
+// Where one hand is, in canvas coordinates, for a figure drawn at (x, groundY) — including
+// the lean, the stoop and the flip, so a prop put here lands in the hand and not beside it.
+// `side` is -1 for the far hand and 1 for the near one, as everywhere else in this file.
+function actorHandPoint(actor, pose, x, groundY, height, lookName, side) {
+  const m = actorMetrics(actor, height, lookName);
+  const shoulder = side < 0 ? pose.shoulderL : pose.shoulderR;
+  const elbow = side < 0 ? pose.elbowL : pose.elbowR;
+  const upper = shoulder + side * 0.17;
+  const fore = upper + elbow;
+  const sx = side * m.shoulderHalf * 0.95;
+  const ex = sx + Math.sin(upper) * m.armLength * 0.52;
+  const ey = m.armY + Math.cos(upper) * m.armLength * 0.52;
+  const lx = ex + Math.sin(fore) * m.armLength * 0.48;
+  const ly = ey + Math.cos(fore) * m.armLength * 0.48;
+
+  // The same transform drawActor uses, applied by hand: rotate, then flip, then translate.
+  const angle = -(pose.lean + m.age.stoop) * 0.5;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const flip = actor.facing === 'left' ? -1 : 1;
+  return {
+    x: x + (lx * cos - ly * sin) * flip,
+    y: groundY - pose.bob * height + (pose.drop || 0) * height + (lx * sin + ly * cos),
+    angle: fore * flip,
+    flip,
+    grip: m.limbWidth
+  };
+}
+
 function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
   const look = lookOf(actor.look || lookName);
   const body = MR_BODIES[actor.body] || MR_BODIES.average;
@@ -811,20 +863,9 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
   // Age multiplies the body preset. A bigger head and shorter legs almost cancel out in
   // total height, which is the point: a child is the same figure with the proportions of a
   // child, and how tall they stand is handled once, by actorHeight().
-  const age = ageOf(actor.age);
-  const headR = height * body.head * look.head * age.head / 2;
-  const legLength = height * body.legs * age.legs;
-  const torsoLength = height * body.torso;
-  const limbWidth = height * 0.052 * look.limb * age.limb;
-  const outline = Math.max(1.5, height * 0.013 * look.inkWeight);
-
-  const hipY = -legLength;
-  const shoulderY = hipY - torsoLength;
-  const headY = shoulderY - height * 0.02 - headR;
-  const hipHalf = height * body.hips / 2;
-  const shoulderHalf = height * body.shoulders / 2;
-  const armY = shoulderY + height * 0.025;
-  const armLength = height * 0.34;
+  const m = actorMetrics(actor, height, lookName);
+  const { age, headR, legLength, torsoLength, limbWidth, outline,
+    hipY, shoulderY, headY, hipHalf, shoulderHalf, armY, armLength } = m;
 
   // One pass over the whole figure. `pad` fattens every stroke and fill for the ink pass.
   const paint = (pad, only) => {

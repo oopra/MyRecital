@@ -137,7 +137,12 @@
           <label class="field"><span>Size <b id="propScaleValue"></b></span>
             <input id="propScale" type="range" min="0.05" max="1.6" step="0.01"></label>
           <label class="field"><span>Colour</span><input id="propTint" type="color"></label>
+          <label class="field"><span>Held by</span><select id="propHeldBy"></select></label>
+          <label class="field"><span>In which hand</span><select id="propHand">
+            <option value="right">Near hand</option><option value="left">Far hand</option>
+          </select></label>
         </div>
+        <p id="propHoldHint" class="hint"></p>
         <div class="field-row">
           <button id="flipPropBtn" class="btn ghost">Flip</button>
           <button id="setPropKeyBtn" class="btn ghost">Set key at playhead</button>

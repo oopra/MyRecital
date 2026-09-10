@@ -46,7 +46,7 @@ const MR_PROPS = {
     }
   },
   rock: {
-    name: 'Rock', layer: 'front', ratio: 1.4,
+    name: 'Rock', layer: 'front', ratio: 1.4, hold: { x: 0, y: -0.16, tilt: 0, size: 0.16 },
     draw(ctx, tint) {
       mrShape(ctx, tint, () => {
         ctx.moveTo(-0.5, 0); ctx.lineTo(-0.34, -0.62); ctx.lineTo(0.08, -0.82);
@@ -86,7 +86,7 @@ const MR_PROPS = {
     }
   },
   pot: {
-    name: 'Pot', layer: 'stage', ratio: 0.8,
+    name: 'Pot', layer: 'stage', ratio: 0.8, hold: { x: 0, y: -0.18, tilt: 0.2, size: 0.26 },
     draw(ctx, tint) {
       mrShape(ctx, tint, () => {
         ctx.moveTo(-0.3, -0.1); ctx.quadraticCurveTo(-0.46, -0.55, -0.22, -0.8);
@@ -132,7 +132,7 @@ const MR_PROPS = {
     }
   },
   banner: {
-    name: 'Banner', layer: 'stage', ratio: 0.36,
+    name: 'Banner', layer: 'stage', ratio: 0.36, hold: { x: 0, y: -0.3, tilt: 0.8, size: 0.5 },
     draw(ctx, tint) {
       mrShape(ctx, '#6b4a2b', () => { ctx.rect(-0.04, -1, 0.08, 1); });
       mrShape(ctx, tint, () => {
@@ -142,7 +142,7 @@ const MR_PROPS = {
     }
   },
   fire: {
-    name: 'Fire', layer: 'stage', ratio: 1.1,
+    name: 'Fire', layer: 'stage', ratio: 1.1, hold: { x: 0, y: -0.2, tilt: 0.5, size: 0.22 },
     draw(ctx, tint) {
       mrShape(ctx, '#4a3527', () => { ctx.rect(-0.4, -0.16, 0.8, 0.16); });
       mrShape(ctx, tint, () => {
@@ -168,7 +168,7 @@ const MR_PROPS = {
     }
   },
   spear: {
-    name: 'Spear', layer: 'stage', ratio: 0.14,
+    name: 'Spear', layer: 'stage', ratio: 0.14, hold: { x: 0, y: -0.45, tilt: 1, size: 0.62 },
     draw(ctx, tint) {
       mrShape(ctx, '#7a5a34', () => { ctx.rect(-0.035, -0.86, 0.07, 0.86); });
       mrShape(ctx, tint, () => {
@@ -176,6 +176,38 @@ const MR_PROPS = {
       }, 0.012);
     }
   },
+  // ---- things a person can carry. `hold` says where the hand goes on the prop and
+  // whether it tilts with the arm: a spear follows the forearm, a pot stays upright
+  // however the arm is waving.
+  sword: {
+    name: 'Sword', layer: 'stage', ratio: 0.3, hold: { x: 0, y: -0.22, tilt: 1, size: 0.42 },
+    draw(ctx, tint) {
+      mrShape(ctx, '#3a2b1e', () => { ctx.rect(-0.05, -0.22, 0.1, 0.22); });        // grip
+      mrShape(ctx, mrShade(tint, -0.2), () => { ctx.rect(-0.18, -0.28, 0.36, 0.07); }); // guard
+      mrShape(ctx, tint, () => {
+        ctx.moveTo(-0.08, -0.28); ctx.lineTo(-0.06, -0.9); ctx.lineTo(0, -1);
+        ctx.lineTo(0.06, -0.9); ctx.lineTo(0.08, -0.28); ctx.closePath();
+      });
+    }
+  },
+  scroll: {
+    name: 'Scroll', layer: 'stage', ratio: 0.5, hold: { x: 0, y: -0.5, tilt: 0.35, size: 0.3 },
+    draw(ctx, tint) {
+      mrShape(ctx, tint, () => { ctx.rect(-0.34, -0.62, 0.68, 0.36); });
+      for (const x of [-0.34, 0.28]) {
+        mrShape(ctx, mrShade(tint, -0.25), () => { ctx.rect(x, -0.68, 0.06, 0.48); });
+      }
+      ctx.strokeStyle = 'rgba(60,45,30,0.5)';
+      ctx.lineWidth = 0.012;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(-0.24, -0.56 + i * 0.09);
+        ctx.lineTo(0.24, -0.56 + i * 0.09);
+        ctx.stroke();
+      }
+    }
+  },
+
   // ---- landmarks. One shape per era, because a period reads from its skyline first.
   pyramid: {
     name: 'Pyramid', layer: 'back', ratio: 1.6,
@@ -238,8 +270,34 @@ function makeProp(kind, opts) {
     name: spec.name,
     tint: o.tint || '#1f7a53',
     layer: o.layer || spec.layer,
+    heldBy: o.heldBy || '',        // a character's name: this prop travels in their hand
+    hand: o.hand || 'right',
     keys: o.keys || [Object.assign({}, MR_DEFAULT_KEY, { scale: 0.35, y: 0.88 }, o.start || {})]
   };
+}
+
+// Which props can be picked up, for the editor to offer.
+function propIsHoldable(kind) {
+  return !!(MR_PROPS[kind] && MR_PROPS[kind].hold);
+}
+
+// Draw a prop in somebody's hand rather than on the ground. The prop is scaled to the
+// person holding it — a child's spear is a child-sized spear — and tilts with the forearm
+// by however much its own `hold` says: a spear follows the arm, a pot stays upright while
+// the arm waves it about.
+function drawHeldProp(ctx, prop, hand, height) {
+  const spec = MR_PROPS[prop.kind];
+  if (!spec || !spec.hold) return;
+  const size = height * spec.hold.size * (prop.holdScale || 1);
+  ctx.save();
+  ctx.translate(hand.x, hand.y);
+  ctx.rotate(hand.angle * spec.hold.tilt);
+  if (hand.flip < 0) ctx.scale(-1, 1);
+  ctx.scale(size, size);
+  // The grip is the point on the prop the hand is closed around, so it goes to the origin.
+  ctx.translate(-spec.hold.x, -spec.hold.y);
+  spec.draw(ctx, prop.tint);
+  ctx.restore();
 }
 
 // Draw one prop at a state produced by the same keyframe machinery the actors use.

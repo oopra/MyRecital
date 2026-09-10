@@ -32,6 +32,8 @@ const MR_SCENERY_NOUNS = [
   ['pot', /\b(pot\b|jar|vessel|urn)/i],
   ['rock', /\b(rock|stone|boulder)/i],
   ['banner', /\b(banner|flag|standard)/i],
+  ['sword', /\b(sword|blade|sabre|saber)/i],
+  ['scroll', /\b(scroll|parchment|manuscript|edict|letter)/i],
   ['spear', /\b(spear|lance|weapon)/i],
   ['chair', /\b(chair|throne|stool|seat)/i],
   ['table', /\b(table|desk)/i],
@@ -274,6 +276,36 @@ function sceneryFor(text, period) {
   return found.slice(0, 2);
 }
 
+// Who is carrying it. A story that says "the guard carried a spear" means the spear is in
+// his hand, not standing in the grass beside him — and a prop in a hand is the difference
+// between a person and a person doing something. Only the beat's own words decide: a spear
+// nobody is said to be carrying stays where the stage put it.
+const MR_CARRY_VERB = /\b(carr(?:y|ied|ying|ies)|h(?:eld|olding|olds)|bore|bearing|bears|raised|raising|drew|lifted|lifting|clutch\w*|gripp\w*|grasp\w*|brandish\w*|wield\w*|swung|waved|with)\b/i;
+
+// The verb has to be close in front of the noun — "carried a spear" but not "carried the
+// news to the village, where a spear hung on the wall".
+const MR_CARRY_REACH = 26;
+
+function carriedBy(text, kind, names) {
+  const spec = MR_SCENERY_NOUNS.find((entry) => entry[0] === kind);
+  if (!spec || !names.length || typeof propIsHoldable !== 'function' || !propIsHoldable(kind)) return '';
+  const at = text.search(spec[1]);
+  if (at < 0) return '';
+  const before = text.slice(Math.max(0, at - MR_CARRY_REACH), at);
+  if (!MR_CARRY_VERB.test(before)) return '';
+  // Whoever was named most recently before the verb is the one holding it; failing that,
+  // the only person on stage, and failing that nobody.
+  const lead = text.slice(0, at);
+  let holder = '';
+  let best = -1;
+  for (const name of names) {
+    const where = lead.toLowerCase().lastIndexOf(name.toLowerCase());
+    if (where > best) { best = where; holder = name; }
+  }
+  if (best >= 0) return holder;
+  return names.length === 1 ? names[0] : '';
+}
+
 // ---------------------------------------------------------------- blocking
 
 // Where people stand. Two characters face each other; a crowd spreads out; everyone gets
@@ -390,6 +422,7 @@ function directScene(scene, cast, carried, project, slots, ages, genders) {
     const place = MR_SCENERY_PLACES[kind] || MR_SCENERY_PLACES.tree;
     return makeProp(kind, {
       tint: place.tint, layer: place.layer,
+      heldBy: carriedBy(text, kind, names),
       start: { x: place.x, y: place.y, scale: place.scale }
     });
   });

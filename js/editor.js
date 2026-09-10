@@ -1106,7 +1106,9 @@ function renderActorList() {
     name.textContent = prop.name;
     chip.appendChild(name);
     const meta = document.createElement('span');
-    meta.textContent = `${prop.layer} · ${prop.keys.length} key${prop.keys.length === 1 ? '' : 's'}`;
+    meta.textContent = prop.heldBy
+      ? `carried by ${prop.heldBy}`
+      : `${prop.layer} · ${prop.keys.length} key${prop.keys.length === 1 ? '' : 's'}`;
     chip.appendChild(meta);
     chip.addEventListener('click', () => { mrSelectedActorId = prop.id; syncAnimatePanel(); drawPreview(); });
     list.appendChild(chip);
@@ -1173,6 +1175,19 @@ function syncAnimatePanel() {
     $('propScale').value = String(state.scale);
     $('propScaleValue').textContent = Number(state.scale).toFixed(2);
     $('propTint').value = prop.tint;
+    // Only some props can be picked up, and the list of hands is the cast of this scene.
+    const names = ((currentStage() || {}).actors || []).map((a) => a.name);
+    const canHold = propIsHoldable(prop.kind);
+    fillSelect($('propHeldBy'), [''].concat(names), ['Nobody — it stands on its own'].concat(names));
+    $('propHeldBy').value = names.indexOf(prop.heldBy) >= 0 ? prop.heldBy : '';
+    $('propHeldBy').disabled = !canHold;
+    $('propHand').value = prop.hand || 'right';
+    $('propHand').disabled = !canHold || !prop.heldBy;
+    $('propHoldHint').textContent = canHold
+      ? (prop.heldBy
+        ? `${prop.heldBy} carries it: it follows the hand, and its own position and size are ignored.`
+        : 'This one can be carried — pick somebody to hold it.')
+      : 'A ' + prop.name.toLowerCase() + ' stays where it is put; nobody can pick it up.';
     ed.suppress = false;
   }
   if (!chosen) return;
@@ -1407,6 +1422,16 @@ function wireAnimate() {
     const prop = scene && scene.stage && (scene.stage.props || []).find((x) => x.id === mrSelectedActorId);
     if (prop) setKey(prop, localTime(), { scale: v });
   }, (v) => { $('propScaleValue').textContent = v.toFixed(2); });
+  for (const [id, field] of [['propHeldBy', 'heldBy'], ['propHand', 'hand']]) {
+    $(id).addEventListener('change', () => {
+      if (ed.suppress) return;
+      const propId = mrSelectedActorId;
+      editActors('carry the ' + field, (stage) => {
+        const prop = (stage.props || []).find((p) => p.id === propId);
+        if (prop) prop[field] = $(id).value;
+      });
+    });
+  }
   $('flipPropBtn').addEventListener('click', () => {
     const prop = selectedProp();
     if (!prop) return;

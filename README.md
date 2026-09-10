@@ -219,15 +219,35 @@ brush texture are all absent — that is the gap between this and a drawn page.
 
 ### Props and scenery
 
-Fourteen props — tree, bush, rock, mountain, chair, table, pot, doorway, house, cart,
-banner, fire, well, spear, cloud — drawn in code in the same flat style with the same ink
-outline, so they belong in the frame with the characters. Each takes a colour of your
-choosing.
+Twenty props — tree, bush, rock, mountain, chair, table, pot, doorway, house, cart,
+banner, fire, well, spear, sword, scroll, cloud, and the three period landmarks (pyramid,
+column, tower) — drawn in code in the same flat style with the same ink outline, so they
+belong in the frame with the characters. Each takes a colour of your choosing.
 
 Props sit at one of three depths: **behind everyone**, **among the cast** (sorted by size,
 so a nearer character passes in front of a further prop) or **in front**. And because a
 prop is keyframed by exactly the same machinery as an actor, a cart can be driven across
 the stage the same way a person walks it.
+
+### Things people carry
+
+Some props are not scenery: a spear, a sword, a scroll, a pot, a banner, a rock or a small
+fire can be **held**. Pick the prop and choose **Held by** — anyone on that stage — and it
+leaves the ground and travels in their hand: it swings with the arm as they walk, goes up
+when they point, and is scaled to whoever is holding it, so a child's spear is a
+child-sized spear. Each prop decides for itself how much it turns with the forearm; a
+spear follows the arm, a pot stays upright however the arm waves it about.
+
+While a prop is carried, its own position, size and keyframes are ignored (they are kept,
+so putting it down again returns it to exactly where it was), and it cannot be dragged on
+the canvas — select it from the stage list, where it is listed as *carried by* whoever has
+it. Set **Held by** back to *Nobody* to put it down. Things nobody could pick up — a
+house, a tree, a pyramid — do not offer the control at all.
+
+The director does this by itself when the words say so: "Ashoka carried a sword", "the
+sage held a scroll" put the thing in that person's hand, while "a spear leaned against the
+wall" leaves it standing where the stage put it. The verb has to be right in front of the
+noun, so a beat that merely mentions a spear does not arm anybody.
 
 **Copy everything to next scene** carries the cast *and* the scenery forward with their
 first pose, which is how you keep a location consistent across a sequence.

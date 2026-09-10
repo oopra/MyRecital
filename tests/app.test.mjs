@@ -2342,6 +2342,129 @@ test('the director opens wide and cuts closer for dialogue', async () => {
   }
 });
 
+test('a carried prop travels in the hand, not on the ground', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('A guard walked the wall.', { titleCard: false });
+    const scene = p.scenes[0];
+    scene.captionStyle = 'none'; scene.motion = 'none'; scene.duration = 4;
+    scene.shot = { size: 'wide', on: '' };
+    const guard = makeActor('Guard', { top: '#2244aa', start: { x: 0.2, y: 0.88, scale: 0.55 } });
+    setKey(guard, 4, { x: 0.8 });
+    // The spear is keyed away on the left, which is exactly where it must NOT appear.
+    const spear = makeProp('spear', { tint: '#ff0000', heldBy: 'Guard', start: { x: 0.05, y: 0.9, scale: 0.5 } });
+    scene.stage = makeStage({ actors: [guard], props: [spear] });
+
+    const centroid = (t) => {
+      const c = document.createElement('canvas');
+      c.width = 270; c.height = 480;
+      const x = c.getContext('2d');
+      x.scale(270 / 1080, 480 / 1920);
+      renderFrame(x, p, t, { width: 1080, height: 1920 });
+      const d = x.getImageData(0, 0, 270, 480).data;
+      let n = 0, sx = 0, sy = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 170 && d[i + 1] < 80 && d[i + 2] < 80) {
+          n++; sx += (i / 4) % 270; sy += Math.floor((i / 4) / 270);
+        }
+      }
+      return { n, x: n ? sx / n / 270 : -1, y: n ? sy / n / 480 : -1 };
+    };
+    const early = centroid(0.2);
+    const late = centroid(3.8);
+    const stage = stageItems(scene, 1).map((entry) => entry.kind);
+    const clickedAtItsKey = actorAtPoint(scene, 1, 0.05, 0.86);
+    // Put it down again and it goes back to being ordinary scenery.
+    spear.heldBy = '';
+    const dropped = centroid(1);
+    return { early, late, stage, held: !!clickedAtItsKey, dropped, drop: stageItems(scene, 1).map((e) => e.kind) };
+  });
+  assert.ok(r.early.n > 50 && r.late.n > 50, 'the spear is drawn at both moments');
+  assert.ok(Math.abs(r.early.x - 0.2) < 0.16, `it starts by the guard, not at its own key (${r.early.x})`);
+  assert.ok(r.late.x - r.early.x > 0.5, 'and crosses the stage with them');
+  assert.ok(r.early.y < 0.75, 'it is carried at hand height, not lying on the ground');
+  assert.deepEqual(r.stage, ['actor'], 'a carried prop is not a separate thing on the stage');
+  assert.equal(r.held, false, 'so you cannot click it where its keyframe says it is');
+  assert.ok(Math.abs(r.dropped.x - 0.05) < 0.06, `put down, it returns to its own place (${r.dropped.x})`);
+  assert.deepEqual(r.drop.sort(), ['actor', 'prop'], 'and is back on the stage');
+});
+
+test('only the things a hand can close around can be picked up', async () => {
+  const r = await ev(() => {
+    const holdable = Object.keys(MR_PROPS).filter((kind) => propIsHoldable(kind));
+    const p = buildStoryboard('A guard stood at the gate.', { titleCard: false });
+    const scene = p.scenes[0];
+    scene.captionStyle = 'none'; scene.motion = 'none';
+    const guard = makeActor('Guard', { start: { x: 0.5, y: 0.88, scale: 0.55 } });
+    // A house with somebody's name on it is a mistake, not an instruction: it stays put.
+    const house = makeProp('house', { heldBy: 'Guard', start: { x: 0.2, y: 0.9, scale: 0.5 } });
+    scene.stage = makeStage({ actors: [guard], props: [house] });
+    return {
+      holdable,
+      pyramid: propIsHoldable('pyramid'), house: propIsHoldable('house'), tree: propIsHoldable('tree'),
+      onStage: stageItems(scene, 1).filter((e) => e.kind === 'prop').length,
+      inHand: heldProps(scene, 'Guard').length
+    };
+  });
+  for (const kind of ['spear', 'sword', 'scroll', 'pot', 'banner']) {
+    assert.ok(r.holdable.includes(kind), `a ${kind} can be carried`);
+  }
+  assert.equal(r.pyramid, false, 'nobody carries a pyramid');
+  assert.equal(r.house, false);
+  assert.equal(r.tree, false);
+  assert.equal(r.onStage, 1, 'a prop nobody could hold stays on the stage');
+  assert.equal(r.inHand, 0, 'and is not drawn in a hand');
+});
+
+test('the director puts a carried thing in the hand of whoever carries it', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard(
+      'Ashoka carried a sword to the temple.\n\n' +
+      'A spear leaned against the wall of the hut.\n\n' +
+      'The old sage held a scroll and read from it.', { titleCard: false });
+    directProject(p);
+    return p.scenes.map((scene) => ({
+      props: ((scene.stage && scene.stage.props) || []).map((prop) => ({ kind: prop.kind, heldBy: prop.heldBy })),
+      cast: ((scene.stage && scene.stage.actors) || []).map((a) => a.name)
+    }));
+  });
+  const sword = r[0].props.find((prop) => prop.kind === 'sword');
+  assert.ok(sword, 'a sword in the words is a sword on the stage');
+  assert.equal(sword.heldBy, 'Ashoka', 'and he is the one carrying it');
+  const spear = r[1].props.find((prop) => prop.kind === 'spear');
+  assert.ok(spear, 'the spear is staged');
+  assert.equal(spear.heldBy, '', 'but nobody is said to be holding it, so it leans where it is');
+  const scroll = r[2].props.find((prop) => prop.kind === 'scroll');
+  assert.ok(scroll, 'the scroll is staged');
+  assert.equal(scroll.heldBy, 'Sage', 'the sage holds the scroll, not whoever walked on first');
+  assert.ok(r[2].cast.includes('Sage'), 'and he is on the stage to hold it');
+});
+
+test('handing somebody a prop is one undoable edit', async () => {
+  const r = await ev(async () => {
+    document.getElementById('storyText').value = 'The Guard\n\nA guard walked the long wall at dusk.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    const staged = ed.project.scenes.find((s) => s.stage && s.stage.actors.length);
+    selectScene(staged.id, true);
+    document.getElementById('propKind').value = 'spear';
+    document.getElementById('addPropBtn').click();
+    const prop = () => currentStage().props[currentStage().props.length - 1];
+    const holder = currentStage().actors[0].name;
+    const select = document.getElementById('propHeldBy');
+    const options = Array.from(select.options).map((o) => o.value);
+    select.value = holder;
+    select.dispatchEvent(new Event('change'));
+    const carried = prop().heldBy;
+    document.getElementById('undoBtn').click();
+    return { options, holder, carried, after: prop().heldBy, hand: prop().hand, disabled: select.disabled };
+  });
+  assert.ok(r.options.includes(r.holder), 'the list of hands is the cast of this scene');
+  assert.equal(r.carried, r.holder, 'choosing somebody hands them the prop');
+  assert.equal(r.after, '', 'and one undo takes it back');
+  assert.equal(r.hand, 'right', 'a prop starts in the near hand');
+  assert.equal(r.disabled, false, 'a spear can be carried, so the control is live');
+});
+
 test('the character panel follows the scene you are looking at', async () => {
   const r = await ev(() => {
     document.getElementById('storyText').value =

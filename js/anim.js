@@ -251,11 +251,26 @@ const stateAt = actorStateAt;
 // Everything on stage, in the order it should be painted: scenery behind, then actors and
 // stage-level props by size so nearer figures cover further ones, then foreground.
 const MR_LAYER_ORDER = { back: 0, stage: 1, front: 2 };
+// A prop in somebody's hand is not on the stage on its own account: it is drawn with the
+// person holding it, and it cannot be dragged or keyframed separately.
+// A prop only counts as held if it is the kind of thing a hand closes around and the
+// person named is actually in this scene; otherwise it stays on the ground, where at
+// least it can be seen and put right.
+function propIsHeld(prop, holders) {
+  return !!(prop.heldBy && propIsHoldable(prop.kind) && (!holders || holders.has(prop.heldBy)));
+}
+
+function heldProps(scene, name) {
+  return ((scene.stage && scene.stage.props) || []).filter((prop) => prop.heldBy === name && propIsHoldable(prop.kind));
+}
+
 function stageItems(scene, t) {
   const stage = scene.stage;
   if (!stage) return [];
+  const holders = new Set((stage.actors || []).map((a) => a.name));
   const items = [];
   for (const prop of stage.props || []) {
+    if (propIsHeld(prop, holders)) continue;
     items.push({ kind: 'prop', item: prop, state: stateAt(prop, t), layer: MR_LAYER_ORDER[prop.layer] != null ? MR_LAYER_ORDER[prop.layer] : 0 });
   }
   for (const actor of stage.actors || []) {
@@ -295,6 +310,12 @@ function drawStage(ctx, scene, localT, w, h, look, project) {
     ctx.fill();
     ctx.restore();
     drawActor(ctx, item, pose, state.x * w, state.y * h, height, look);
+    // Anything they are carrying goes on last, in the hand, in front of them.
+    for (const prop of heldProps(scene, item.name)) {
+      const side = prop.hand === 'left' ? -1 : 1;
+      const hand = actorHandPoint(item, pose, state.x * w, state.y * h, height, look, side);
+      drawHeldProp(ctx, prop, hand, height);
+    }
     ctx.restore();
   }
   return true;
