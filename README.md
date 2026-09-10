@@ -185,6 +185,14 @@ Open the **Animate** tab, press **+ Character**, and drag them around the previe
 - **Move someone across the stage and they walk there.** If two keys have different
   positions and no action was set, the walk cycle plays and the character faces the way
   they are going — the commonest thing you want and the commonest thing you forget to key.
+- **Looking at somebody.** Every character has a **Looking at** setting — anyone else on
+  that stage, or any of the scenery. Their eyes go to whoever it is: forward if the thing
+  is in front of them, back over the shoulder if it is behind. It is a keyframe like a
+  pose, so a character can watch the door until the moment they turn to the child. And if
+  their action is **point**, the arm aims at the thing itself — up at a tower, down at a
+  rock, and round the other way if it is behind them, because nobody points over their own
+  shoulder. The director sets this by itself: two people in a beat look at each other, a
+  crowd looks at whoever is speaking, and a beat that points points at what it named.
 - **Appearance versus performance.** Body, hair and colours belong to the character and
   apply everywhere; pose, mood, position and size belong to this instant and become
   keyframes. That distinction is the whole mental model of the tool.

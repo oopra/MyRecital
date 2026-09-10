@@ -2342,6 +2342,130 @@ test('the director opens wide and cuts closer for dialogue', async () => {
   }
 });
 
+test('a character keyed to face left is drawn facing left', async () => {
+  const r = await ev(() => {
+    const ink = (facing) => {
+      const p = buildStoryboard('A guard pointed at the gate.', { titleCard: false });
+      const scene = p.scenes[0];
+      scene.captionStyle = 'none'; scene.motion = 'none'; scene.duration = 3;
+      scene.shot = { size: 'wide', on: '' };
+      scene.stage = makeStage({ actors: [makeActor('Guard', {
+        top: '#ff0000', start: { x: 0.5, y: 0.88, scale: 0.6, action: 'point', facing }
+      })] });
+      const c = document.createElement('canvas');
+      c.width = 216; c.height = 384;
+      const x = c.getContext('2d');
+      x.scale(216 / 1080, 384 / 1920);
+      renderFrame(x, p, 1.5, { width: 1080, height: 1920 });
+      const d = x.getImageData(0, 0, 216, 384).data;
+      let n = 0, sx = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 170 && d[i + 1] < 80 && d[i + 2] < 80) { n++; sx += (i / 4) % 216; }
+      }
+      return n ? sx / n / 216 : -1;
+    };
+    return { right: ink('right'), left: ink('left') };
+  });
+  // Facing lives on the keyframe, and for a long time the drawing never read it: every
+  // character in every reel faced right, whatever their keys or their walk said.
+  assert.ok(r.right > 0.5, `pointing right puts the arm to the right (${r.right})`);
+  assert.ok(r.left < 0.5, `and pointing left puts it to the left (${r.left})`);
+});
+
+test('a pointing arm aims at the thing, not at a fixed angle in front', async () => {
+  const r = await ev(() => {
+    const hand = (target) => {
+      const p = buildStoryboard('The guide pointed it out.', { titleCard: false });
+      const scene = p.scenes[0];
+      scene.captionStyle = 'none'; scene.motion = 'none'; scene.duration = 4;
+      const guide = makeActor('Guide', { start: { x: 0.4, y: 0.88, scale: 0.5, action: 'point', facing: 'right', lookAt: 'Tower' } });
+      const tower = makeProp('tower', { start: target });
+      scene.stage = makeStage({ actors: [guide], props: [tower] });
+      const w = 1080, h = 1920;
+      const pose = posedFor(guide, scene, 2, p, { w, h, look: 'natural' });
+      const state = actorStateAt(guide, 2);
+      const height = actorHeight(guide, state.scale * h);
+      const point = actorHandPoint(guide, pose, state.x * w, state.y * h, height, 'natural', 1);
+      return { x: point.x / w, y: point.y / h, facing: pose.facing };
+    };
+    const high = hand({ x: 0.8, y: 0.9, scale: 0.8 });
+    const low = hand({ x: 0.8, y: 0.92, scale: 0.06 });
+    const behind = hand({ x: 0.1, y: 0.9, scale: 0.5 });
+    const plain = (() => {
+      const p = buildStoryboard('The guide pointed.', { titleCard: false });
+      const scene = p.scenes[0];
+      const guide = makeActor('Guide', { start: { x: 0.4, y: 0.88, scale: 0.5, action: 'point', facing: 'right' } });
+      scene.stage = makeStage({ actors: [guide] });
+      const pose = posedFor(guide, scene, 2, p, { w: 1080, h: 1920, look: 'natural' });
+      const height = actorHeight(guide, 0.5 * 1920);
+      const point = actorHandPoint(guide, pose, 0.4 * 1080, 0.88 * 1920, height, 'natural', 1);
+      return { x: point.x / 1080, y: point.y / 1920 };
+    })();
+    return { high, low, behind, plain };
+  });
+  assert.ok(r.high.x > 0.4 && r.low.x > 0.4, 'both point forward, toward the thing');
+  assert.ok(r.high.y < r.low.y - 0.03, `a tall thing is pointed at higher up (${r.high.y} vs ${r.low.y})`);
+  // Nobody points over their own shoulder: they turn round first.
+  assert.equal(r.behind.facing, 'left', 'pointing at something behind them turns them round');
+  assert.ok(r.behind.x < 0.4, `and the hand goes toward it (${r.behind.x})`);
+  // With nothing to aim at, the gesture is the one it always was.
+  assert.ok(Math.abs(r.plain.y - 0.7) < 0.2, 'an unaimed point is still a point');
+});
+
+test('a character watches whoever they are told to watch', async () => {
+  const r = await ev(() => {
+    const scene = (lookAt, where) => {
+      const p = buildStoryboard('Two people on a road.', { titleCard: false });
+      const s = p.scenes[0];
+      s.captionStyle = 'none'; s.motion = 'none'; s.duration = 4;
+      s.shot = { size: 'wide', on: '' };
+      const watcher = makeActor('Watcher', { seed: 4, start: { x: 0.5, y: 0.88, scale: 0.5, facing: 'right', lookAt } });
+      const other = makeActor('Other', { seed: 9, top: '#8a3f5f', start: { x: where, y: 0.88, scale: 0.5, facing: 'left' } });
+      s.stage = makeStage({ actors: [watcher, other] });
+      const pose = posedFor(watcher, s, 2, p, { w: 1080, h: 1920, look: 'natural' });
+      const c = document.createElement('canvas');
+      c.width = 216; c.height = 384;
+      const x = c.getContext('2d');
+      x.scale(216 / 1080, 384 / 1920);
+      renderFrame(x, p, 2, { width: 1080, height: 1920 });
+      return { turn: pose.headTurn, pixels: c.toDataURL() };
+    };
+    const ahead = scene('Other', 0.85);
+    const back = scene('Other', 0.15);
+    const nobody = scene('', 0.85);
+    return { ahead: ahead.turn, back: back.turn, nobody: nobody.turn, same: ahead.pixels === back.pixels };
+  });
+  assert.ok(r.ahead > r.nobody, `somebody in front pulls the eyes forward (${r.ahead} vs ${r.nobody})`);
+  assert.ok(r.back < r.nobody, `somebody behind pulls them back (${r.back})`);
+  assert.ok(r.ahead > 0.3 && r.back < -0.3, 'and a glance is worth seeing, not a rounding error');
+  assert.equal(r.same, false, 'the difference reaches the picture, not just the numbers');
+});
+
+test('the director has people look at each other, and point at what the words point at', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard(
+      'Ashoka met the sage on the road.\n\n' +
+      'The sage pointed at the temple on the hill.', { titleCard: false });
+    directProject(p);
+    return p.scenes.map((scene) => ({
+      cast: ((scene.stage && scene.stage.actors) || []).map((a) => ({
+        name: a.name, action: a.keys[0].action, lookAt: a.keys[0].lookAt
+      })),
+      props: ((scene.stage && scene.stage.props) || []).map((prop) => prop.name)
+    }));
+  });
+  const meeting = r.find((scene) => scene.cast.length === 2);
+  assert.ok(meeting, 'the meeting has two people in it');
+  for (const person of meeting.cast) {
+    assert.ok(person.lookAt && person.lookAt !== person.name, `${person.name} is looking at somebody`);
+    assert.ok(meeting.cast.some((other) => other.name === person.lookAt), 'and it is the other person');
+  }
+  const pointing = r.find((scene) => scene.cast.some((person) => person.action === 'point'));
+  assert.ok(pointing, 'the second beat is a point');
+  const pointer = pointing.cast.find((person) => person.action === 'point');
+  assert.ok(pointing.props.includes(pointer.lookAt), `they point at what is on the stage (${pointer.lookAt})`);
+});
+
 test('a carried prop travels in the hand, not on the ground', async () => {
   const r = await ev(() => {
     const p = buildStoryboard('A guard walked the wall.', { titleCard: false });

@@ -10,7 +10,7 @@
 // because a character cannot be 40% waving.
 
 const MR_TWEENED = ['x', 'y', 'scale', 'rotate'];
-const MR_STEPPED = ['facing', 'action', 'expression'];
+const MR_STEPPED = ['facing', 'action', 'expression', 'lookAt'];
 
 const MR_DEFAULT_KEY = {
   t: 0,
@@ -20,7 +20,8 @@ const MR_DEFAULT_KEY = {
   rotate: 0,
   facing: 'right',
   action: 'idle',
-  expression: 'calm'
+  expression: 'calm',
+  lookAt: ''         // the name of somebody (or something) on this stage to watch
 };
 
 let mrActorCounter = 0;
@@ -174,15 +175,53 @@ function strideCycles(actor, t, state) {
   return track ? track[track.length - 1].cycles : null;
 }
 
+// Where a character is looking, as a point on the frame. A person is looked at in the
+// eye, a prop in the middle of itself, and a prop somebody is carrying is really that
+// person, since that is where it is. `frame` is the size the stage is being drawn at,
+// because an angle needs both dimensions and the stage is kept in fractions of them.
+function gazeTarget(scene, name, t, frame) {
+  const stage = scene.stage;
+  if (!stage || !name || !frame) return null;
+  const actor = (stage.actors || []).find((a) => a.name === name);
+  if (actor) {
+    const state = stateAt(actor, t);
+    const height = actorHeight(actor, state.scale * frame.h);
+    const m = actorMetrics(actor, height, frame.look);
+    return { x: state.x * frame.w, y: state.y * frame.h + m.headY };
+  }
+  const prop = (stage.props || []).find((p) => p.name === name || p.kind === name);
+  if (!prop) return null;
+  // Whatever they are carrying is at the end of their arm, so look at them.
+  if (propIsHeld(prop)) return gazeTarget(scene, prop.heldBy, t, { w: frame.w, h: frame.h, look: frame.look });
+  const state = stateAt(prop, t);
+  return { x: state.x * frame.w, y: state.y * frame.h - state.scale * frame.h * 0.5 };
+}
+
 // The pose an actor is in right now: the right cycle, started at the right moment, and
-// cross-faded from whatever they were doing before.
-function posedFor(actor, scene, localT, project) {
+// cross-faded from whatever they were doing before. `frame` is optional; without it the
+// pose is the same except that nobody is watching anybody, since a gaze is geometry and
+// geometry needs to know how big the frame is.
+function posedFor(actor, scene, localT, project, frame) {
   const state = stateAt(actor, localT);
   const { action, start, previous } = actionStartAt(actor, localT);
   const speaking = actorSpeaking(actor, scene, localT, project);
   const tIn = Math.max(0, localT - start);
 
   const opts = { tIn, pace: ageOf(actor.age).pace };
+  // Looking at somebody turns the head, and aims the arm if they are pointing.
+  const target = state.lookAt && state.lookAt !== actor.name
+    ? gazeTarget(scene, state.lookAt, localT, frame) : null;
+  let facing = state.facing;
+  if (target) {
+    // Nobody points over their own shoulder: pointing at a thing behind you means turning
+    // round to point at it. Looking is different — a glance back is an ordinary thing to
+    // do — so only the gesture turns the body.
+    if (action === 'point') facing = target.x >= state.x * frame.w ? 'right' : 'left';
+    const height = actorHeight(actor, state.scale * frame.h);
+    const aims = aimAngles(actor, facing, state.x * frame.w, state.y * frame.h, height, frame.look, target);
+    opts.gaze = aims.gaze;
+    opts.aim = aims.arm;
+  }
   if (action === 'walk') {
     const cycles = strideCycles(actor, localT, state);
     // Walking on the spot still needs a cycle, so fall back to the clock when the
@@ -190,13 +229,17 @@ function posedFor(actor, scene, localT, project) {
     if (cycles != null && cycles > 0.02) opts.cycle = cycles;
   }
   const pose = poseFor(action, localT, actor.seed, speaking, opts);
+  // Which way they are facing is part of the moment, and the drawing reads it from here.
+  pose.facing = facing;
   if (!previous || previous === action) return pose;
 
   // Ease out of the previous action rather than snapping — a character should sit down,
   // not teleport into a sitting position.
   const blend = mrSat(tIn / 0.28);
   if (blend >= 1) return pose;
-  const before = poseFor(previous, localT, actor.seed, speaking, { tIn: tIn + 1, pace: opts.pace });
+  const before = poseFor(previous, localT, actor.seed, speaking,
+    { tIn: tIn + 1, pace: opts.pace, gaze: opts.gaze, aim: opts.aim });
+  before.facing = facing;
   return blendPoses(before, pose, mrEaseKey(blend));
 }
 
@@ -292,7 +335,7 @@ function drawStage(ctx, scene, localT, w, h, look, project) {
       drawProp(ctx, item, state, w, h);
       continue;
     }
-    const pose = posedFor(item, scene, localT, project);
+    const pose = posedFor(item, scene, localT, project, { w, h, look });
     // The size slider says where they stand in the frame; their age says how tall they are.
     const height = actorHeight(item, state.scale * h);
     ctx.save();

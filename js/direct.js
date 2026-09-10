@@ -427,6 +427,21 @@ function directScene(scene, cast, carried, project, slots, ages, genders) {
     });
   });
 
+  // Where everybody is looking. Two people in a beat look at each other — that alone is
+  // most of the difference between two figures standing near each other and two people in
+  // a scene together. A crowd looks at whoever is speaking. And anyone pointing points at
+  // the thing this beat put on the stage, because "he pointed at the temple" ought to
+  // point at the temple rather than at a fixed angle in front of him.
+  for (const actor of actors) {
+    const first = actor.keys[0];
+    const thing = props.find((prop) => prop.heldBy !== actor.name);
+    let at = '';
+    if (first.action === 'point' && thing) at = thing.name;
+    else if (actors.length === 2) at = actors.find((other) => other !== actor).name;
+    else if (speaker && speaker !== actor.name) at = speaker;
+    if (at) first.lookAt = at;
+  }
+
   return { actors, props, speaker };
 }
 

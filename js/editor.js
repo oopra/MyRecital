@@ -1197,6 +1197,13 @@ function syncAnimatePanel() {
   $('actorAction').value = state.action;
   $('actorExpression').value = state.expression;
   $('actorFacing').value = state.facing;
+  // Who they can look at is everybody else on this stage, plus the scenery, so the list is
+  // rebuilt with the scene rather than filled once at boot.
+  const others = ((currentStage() || {}).actors || []).map((a) => a.name).filter((name) => name !== chosen.name);
+  const things = ((currentStage() || {}).props || []).map((prop) => prop.name);
+  const watchable = others.concat(things.filter((name, i) => things.indexOf(name) === i));
+  fillSelect($('actorLookAt'), [''].concat(watchable), ['Straight ahead'].concat(watchable));
+  $('actorLookAt').value = watchable.indexOf(state.lookAt) >= 0 ? state.lookAt : '';
   $('actorAge').value = chosen.age || 'adult';
   $('actorBody').value = chosen.body;
   $('actorHairStyle').value = chosen.hairStyle;
@@ -1331,7 +1338,7 @@ function wireAnimate() {
   });
 
   // Pose, mood, facing, position and size are moments — they become keyframes.
-  for (const [id, prop] of [['actorAction', 'action'], ['actorExpression', 'expression'], ['actorFacing', 'facing']]) {
+  for (const [id, prop] of [['actorAction', 'action'], ['actorExpression', 'expression'], ['actorFacing', 'facing'], ['actorLookAt', 'lookAt']]) {
     $(id).addEventListener('change', () => {
       if (ed.suppress) return;
       setActorProperty('set ' + prop, { [prop]: $(id).value }, false);

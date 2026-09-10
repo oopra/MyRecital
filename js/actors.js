@@ -129,6 +129,15 @@ const mrSat = (u) => (u < 0 ? 0 : u > 1 ? 1 : u);
 // the character. Useful landmarks: 0 = hanging, 1.57 = horizontal in front, 3.14 = straight up.
 const MR_ARM_FORWARD = Math.PI / 2;
 const MR_ARM_UP = Math.PI;
+// Where a pointing hand goes when nobody has said what to point at: a shade above level,
+// which is what "there!" looks like. An aim replaces this number and nothing else, so a
+// pointing gesture keeps its anticipation, its overshoot and its small living drift.
+const MR_POINT_AIM = MR_ARM_FORWARD + 0.12;
+// The pointing arm's own bend, shared out between the shoulder and the elbow. Subtracted
+// from the aim so that the HAND ends up along it rather than the upper arm.
+const MR_POINT_BEND = 0.39;
+// How far the eyes go before a head would really have to turn with them.
+const MR_GAZE_TURN = 0.5;
 
 // A pose at one instant.
 //   t        scene time, for continuous idles like breathing and blinking
@@ -217,7 +226,11 @@ function poseFor(action, clock, seed, speaking, opts) {
       const overshoot = Math.sin(mrSat(tIn / 0.38) * Math.PI) * 0.13;
       // Just under horizontal at the shoulder, with the forearm carrying the last of the
       // angle back up — a ruler-straight arm reads as a T-pose, not a gesture.
-      p.shoulderR = (MR_ARM_FORWARD - 0.27 + overshoot) * u;
+      // `aim` is the angle the hand should end up along — straight down is 0, level in
+      // front is 1.57 — so pointing at a thing is one number, worked out from where the
+      // thing actually is, and everything else about the gesture is unchanged.
+      const aim = (o.aim != null ? o.aim : MR_POINT_AIM) - MR_POINT_BEND;
+      p.shoulderR = (aim + overshoot) * u;
       p.elbowR = 0.22 * u;
       p.headTurn = 0.2 * u;
       p.lean = 0.03 * u;
@@ -301,6 +314,10 @@ function poseFor(action, clock, seed, speaking, opts) {
       p.bob += Math.abs(shift) * 0.002;
     }
   }
+
+  // Looking at somebody beats whatever the action had the head doing: a character who has
+  // been told to watch the king watches the king while they walk, sit or wave.
+  if (o.gaze != null) p.headTurn = o.gaze;
 
   // Speaking overrides the mouth whatever the body is doing. Three forms, in order of how
   // much we know: `{ open, viseme }` is measured loudness plus the shape of the sound being
@@ -810,6 +827,14 @@ function actorMetrics(actor, height, lookName) {
   };
 }
 
+// Which way a character is facing at this instant. It belongs to the moment, not to the
+// character, so it arrives on the pose — a character walks left in one beat and right in
+// the next without becoming a different person. (For a long while nothing read it off the
+// pose at all, and every figure in every reel faced right whatever their keyframes said.)
+function mrFacing(actor, pose) {
+  return (pose && pose.facing) || (actor && actor.facing) || 'right';
+}
+
 // Where one hand is, in canvas coordinates, for a figure drawn at (x, groundY) — including
 // the lean, the stoop and the flip, so a prop put here lands in the hand and not beside it.
 // `side` is -1 for the far hand and 1 for the near one, as everywhere else in this file.
@@ -828,7 +853,7 @@ function actorHandPoint(actor, pose, x, groundY, height, lookName, side) {
   // The same transform drawActor uses, applied by hand: rotate, then flip, then translate.
   const angle = -(pose.lean + m.age.stoop) * 0.5;
   const cos = Math.cos(angle), sin = Math.sin(angle);
-  const flip = actor.facing === 'left' ? -1 : 1;
+  const flip = mrFacing(actor, pose) === 'left' ? -1 : 1;
   return {
     x: x + (lx * cos - ly * sin) * flip,
     y: groundY - pose.bob * height + (pose.drop || 0) * height + (lx * sin + ly * cos),
@@ -838,7 +863,27 @@ function actorHandPoint(actor, pose, x, groundY, height, lookName, side) {
   };
 }
 
+// Turn "look at that" into the two numbers a pose can use: how far the head turns, and
+// the angle a pointing hand wants to be along. Both are in the actor's own frame, where
+// forward is whichever way they happen to be facing — so the same target makes a
+// character glance forward or back over their shoulder depending on how they stand.
+function aimAngles(actor, facing, x, groundY, height, lookName, target) {
+  const m = actorMetrics(actor, height, lookName);
+  const forward = facing === 'left' ? -1 : 1;
+  const ahead = (target.x - x) * forward;
+  // Half a body height to the side is as far as the eyes go; anything beyond that is the
+  // same glance, not a further one, so this saturates rather than growing without bound.
+  const swing = Math.max(1, height * 0.45);
+  const gaze = Math.max(-1, Math.min(1, ahead / swing)) * MR_GAZE_TURN;
+  // The arm is aimed from the shoulder, and it is allowed to swing back: pointing at
+  // something behind you is a real gesture, and clamping it forward would be a lie about
+  // where the thing is.
+  const arm = Math.max(-1, Math.min(2.8, Math.atan2(ahead, target.y - (groundY + m.armY))));
+  return { gaze, arm };
+}
+
 function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
+  const facing = mrFacing(actor, pose);
   const look = lookOf(actor.look || lookName);
   const body = MR_BODIES[actor.body] || MR_BODIES.average;
   const expression = MR_EXPRESSIONS[actor.expression] || MR_EXPRESSIONS.calm;
@@ -886,7 +931,7 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
       }
       const kneeJoint = mrLimb(ctx, hipX, hipY, hip, legLength * 0.52, w(limbWidth), c(legColour));
       const foot = mrLimb(ctx, kneeJoint.x, kneeJoint.y, hip - knee, legLength * 0.48, w(limbWidth * 0.9), c(legColour));
-      mrShoe(ctx, foot.x, foot.y + limbWidth * 0.1, hip - knee, limbWidth + pad, actor.facing, c('shoe'));
+      mrShoe(ctx, foot.x, foot.y + limbWidth * 0.1, hip - knee, limbWidth + pad, facing, c('shoe'));
     }
 
     ctx.fillStyle = c('top');
@@ -962,7 +1007,7 @@ function drawActor(ctx, actor, pose, x, groundY, height, lookName) {
   ctx.save();
   // `drop` lowers the whole figure so bent legs still reach the floor.
   ctx.translate(x, groundY - pose.bob * height + (pose.drop || 0) * height);
-  if (actor.facing === 'left') ctx.scale(-1, 1);
+  if (facing === 'left') ctx.scale(-1, 1);
   ctx.rotate(-(pose.lean + age.stoop) * 0.5);
 
   paint(outline, true);     // ink silhouette
