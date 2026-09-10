@@ -279,6 +279,8 @@ function selectScene(id, seekToIt) {
   // Without this it kept showing the previous scene's cast — and, straight after casting a
   // reel, showed "no one on stage yet" over a stage full of people.
   syncAnimatePanel();
+  // Who says what belongs to the beat as well.
+  renderLineList();
   drawPreview();
 }
 
@@ -380,6 +382,8 @@ function syncStyleControls() {
   $('voicesEnabled').checked = voicesOn(ed.project);
   $('voicesMode').value = voiceMode(ed.project);
   renderVoiceList();
+  renderLineList();
+  renderSayList();
   $('audioEnabled').checked = !!audio.enabled;
   $('audioEnsemble').value = audio.ensemble || 'auto';
   $('audioSfx').checked = audio.sfx !== false;
@@ -1664,6 +1668,142 @@ function setVoice(name, changes) {
   });
 }
 
+// The lines of the selected beat, with who says each. The list shows what the reel decided
+// and lets any of it be overruled; "as written" means the guess, and it says what the guess
+// was, because a control that hides the thing it is overriding is no help at all.
+function renderLineList() {
+  const list = $('lineList');
+  if (!list) return;
+  list.innerHTML = '';
+  const scene = selectedScene();
+  const names = voiceCastOf(ed.project).filter((name) => name !== MR_NARRATOR);
+  const guessed = scene ? speechLinesFor(scene, names, []) : [];
+  const hint = $('lineHint');
+  if (!scene || !guessed.length) {
+    hint.textContent = scene ? 'Nothing is said in this beat.' : 'Select a beat in the storyboard.';
+    return;
+  }
+  hint.textContent = voicesOn(ed.project) ? '' : 'The characters are not speaking their own lines, so this changes nothing yet.';
+  const fixes = scene.lineWho || [];
+  guessed.forEach((line, i) => {
+    const row = document.createElement('div');
+    row.className = 'cast-row';
+
+    const said = document.createElement('input');
+    said.type = 'text';
+    said.className = 'cast-name';
+    said.readOnly = true;
+    said.value = line.text.length > 42 ? line.text.slice(0, 41) + '…' : line.text;
+    said.title = line.text;
+
+    const who = document.createElement('select');
+    const guess = line.who || MR_NARRATOR;
+    fillSelect(who, [''].concat([MR_NARRATOR]).concat(names),
+      ['As written — ' + guess].concat(['The narrator']).concat(names));
+    who.value = fixes[i] && (fixes[i] === MR_NARRATOR || names.indexOf(fixes[i]) >= 0) ? fixes[i] : '';
+    who.addEventListener('change', () => setLineSpeaker(scene.id, i, who.value));
+
+    const tryIt = document.createElement('button');
+    tryIt.className = 'btn ghost tiny';
+    tryIt.textContent = '▶';
+    tryIt.title = 'Hear this line';
+    tryIt.addEventListener('click', () => {
+      const speaker = who.value || guess;
+      const profile = voiceProfileFor(ed.project, speaker);
+      const ctx = mrAudioEnsure();
+      if (!ctx) return;
+      if (ctx.state === 'suspended') ctx.resume();
+      mrSpeakLine(line.text, ctx.currentTime + 0.05, profile, profile.rate, 1, voiceMode(ed.project), sayingFor(ed.project));
+    });
+
+    row.appendChild(said);
+    row.appendChild(who);
+    row.appendChild(tryIt);
+    list.appendChild(row);
+  });
+}
+
+// A speaker override is stored against the beat by line number, which is why re-writing a
+// beat's words drops its overrides: they were answers to lines that no longer exist.
+function setLineSpeaker(sceneId, index, who) {
+  if (ed.suppress) return;
+  commit(who ? 'set who speaks' : 'let the reel choose who speaks', (p) => {
+    const scene = p.scenes.find((s) => s.id === sceneId);
+    if (!scene) return;
+    const fixes = (scene.lineWho || []).slice();
+    while (fixes.length <= index) fixes.push('');
+    fixes[index] = who;
+    scene.lineWho = fixes.some((entry) => entry) ? fixes : undefined;
+  });
+  renderLineList();
+}
+
+// The pronunciation fixes, as a list you can hear.
+function renderSayList() {
+  const list = $('sayList');
+  if (!list) return;
+  list.innerHTML = '';
+  const table = (ed.project.voices && ed.project.voices.saying) || {};
+  for (const word of Object.keys(table)) {
+    const row = document.createElement('div');
+    row.className = 'cast-row';
+
+    const label = document.createElement('input');
+    label.type = 'text';
+    label.className = 'cast-name';
+    label.value = word;
+    label.readOnly = true;
+
+    const said = document.createElement('input');
+    said.type = 'text';
+    said.value = table[word];
+    said.addEventListener('change', () => setSaying(word, said.value.trim()));
+
+    const tryIt = document.createElement('button');
+    tryIt.className = 'btn ghost tiny';
+    tryIt.textContent = '▶';
+    tryIt.title = 'Hear it';
+    tryIt.addEventListener('click', () => mrTryWord(ed.project, word, said.value.trim()));
+
+    const drop = document.createElement('button');
+    drop.className = 'btn ghost tiny';
+    drop.textContent = '✕';
+    drop.title = 'Say it the ordinary way again';
+    drop.addEventListener('click', () => setSaying(word, ''));
+
+    row.appendChild(label);
+    row.appendChild(said);
+    row.appendChild(tryIt);
+    row.appendChild(drop);
+    list.appendChild(row);
+  }
+}
+
+function setSaying(word, respelling) {
+  const clean = String(word || '').trim();
+  if (!clean) return;
+  commit(respelling ? 'say ' + clean + ' differently' : 'unfix ' + clean, (p) => {
+    p.voices = Object.assign({ enabled: true, mode: 'words', cast: {} }, p.voices);
+    const table = Object.assign({}, p.voices.saying);
+    if (respelling) table[clean] = respelling;
+    else delete table[clean];
+    p.voices.saying = table;
+  });
+  renderSayList();
+}
+
+function wireLineFixes() {
+  $('sayAddBtn').addEventListener('click', () => {
+    const word = $('sayWord').value.trim();
+    const respelling = $('sayAs').value.trim();
+    if (!word || !respelling) return;
+    setSaying(word, respelling);
+    $('sayWord').value = '';
+    $('sayAs').value = '';
+  });
+  $('sayAs').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('sayAddBtn').click(); });
+}
+
 function wireNarration() {
   const providerKeys = Object.keys(MR_VOICE_PROVIDERS);
   fillSelect($('voiceProvider'), providerKeys, providerKeys.map((k) => MR_VOICE_PROVIDERS[k].name));
@@ -1865,6 +2005,7 @@ function wireEditor() {
   wirePictures();
   wirePanels();
   wireNarration();
+  wireLineFixes();
   wireAnimate();
 
   $('buildBtn').addEventListener('click', buildFromText);

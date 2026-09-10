@@ -192,8 +192,20 @@ function splitSpeech(sentence, names, lastNamed) {
   return [{ who: null, text }];
 }
 
+// The reel's list of "say it like this" fixes, ready to look words up in. Rebuilt only
+// when the list itself changes, since every line of every beat asks for it.
+let mrSayingCache = { table: null, map: null };
+function sayingFor(project) {
+  const table = project && project.voices && project.voices.saying;
+  if (!table || !Object.keys(table).length) return null;
+  if (mrSayingCache.table === table) return mrSayingCache.map;
+  const map = typeof sayingMap === 'function' ? sayingMap(table) : null;
+  mrSayingCache = { table, map };
+  return map;
+}
+
 // One beat, as an ordered list of who says what.
-function speechLinesFor(scene, names) {
+function speechLinesFor(scene, names, fixes) {
   const text = String(scene.text || '').trim();
   if (!text || scene.kind === 'title') return text ? [{ who: null, text }] : [];
   const sentences = typeof splitSentences === 'function' ? splitSentences(text) : [text];
@@ -212,7 +224,16 @@ function speechLinesFor(scene, names) {
     if (previous && !previous.who && !line.who) previous.text += ' ' + line.text;
     else merged.push(Object.assign({}, line));
   }
-  return merged;
+  // Anybody can overrule the guess. Working out who says what from punctuation and speech
+  // verbs is right most of the time and wrong some of it, and a line in the wrong voice is
+  // the most obvious mistake a reel can make — so the answer is a list, not a better guess.
+  const fixed = fixes === undefined ? scene.lineWho : fixes;
+  if (!fixed || !fixed.length) return merged;
+  return merged.map((line, i) => {
+    const who = fixed[i];
+    if (!who) return line;
+    return Object.assign({}, line, { who: who === MR_NARRATOR ? null : who });
+  });
 }
 
 // ---------------------------------------------------------------- timing
@@ -225,8 +246,8 @@ function speechWeight(text) {
   return visemeSequence(text).reduce((sum, piece) => sum + piece.weight, 0);
 }
 
-function speechSeconds(text, rate, mode) {
-  if (mode !== 'syllables' && typeof speechPlanSeconds === 'function') return speechPlanSeconds(text, rate);
+function speechSeconds(text, rate, mode, saying) {
+  if (mode !== 'syllables' && typeof speechPlanSeconds === 'function') return speechPlanSeconds(text, rate, saying);
   return speechWeight(text) / (MR_SPEECH_UNITS * (rate || 1));
 }
 
@@ -247,9 +268,10 @@ function speechScheduleFor(project, scene) {
   const gap = 0.16;
   const room = Math.max(0.5, (scene.duration || 0) - 0.3);
   const mode = voiceMode(project);
+  const saying = sayingFor(project);
   const spans = lines.map((line) => {
     const profile = voiceProfileFor(project, line.who || MR_NARRATOR);
-    return { line, profile, seconds: speechSeconds(line.text, profile.rate, mode) };
+    return { line, profile, seconds: speechSeconds(line.text, profile.rate, mode, saying) };
   });
   const total = spans.reduce((sum, span) => sum + span.seconds, 0) + gap * (spans.length - 1);
   const squeeze = total > room ? room / total : 1;
@@ -258,7 +280,7 @@ function speechScheduleFor(project, scene) {
     const seconds = span.seconds * squeeze;
     const out = {
       at, dur: seconds, who: span.line.who || MR_NARRATOR, text: span.line.text,
-      rate: span.profile.rate / squeeze, profile: span.profile, mode
+      rate: span.profile.rate / squeeze, profile: span.profile, mode, saying
     };
     at += seconds + gap * squeeze;
     return out;
@@ -297,7 +319,7 @@ function spokenMouthFor(project, scene, actor, localT) {
     // In words mode the mouth comes from the phonemes themselves, which is the shape the
     // sound is actually being made with rather than a guess from the spelling.
     if (span.mode !== 'syllables' && typeof speechPlan === 'function') {
-      return mouthFromPlan(speechPlan(span.text, { rate: span.rate }), localT - span.at);
+      return mouthFromPlan(speechPlan(span.text, { rate: span.rate, saying: span.saying }), localT - span.at);
     }
     return spokenMouthAt(span.text, localT - span.at, { rate: span.rate, loop: false });
   }
@@ -368,12 +390,12 @@ function mrSpeakPiece(viseme, at, duration, profile, timbre, pitchHz, out) {
 
 // One line, spoken. The pitch drifts down across a statement and up at a question, which
 // is the smallest amount of prosody that stops a voice sounding like a list.
-function mrSpeakLine(text, at, profile, rate, gainValue, mode) {
+function mrSpeakLine(text, at, profile, rate, gainValue, mode, saying) {
   const ctx = mrAudio.ctx;
   if (!ctx) return 0;
   // Real words unless the reel has asked for the gibberish voice.
   if (mode !== 'syllables' && typeof mrSpeakWords === 'function') {
-    return mrSpeakWords(text, at, profile, rate, gainValue);
+    return mrSpeakWords(text, at, profile, rate, gainValue, saying);
   }
   const timbre = MR_TIMBRES[profile.timbre] || MR_TIMBRES.warm;
   const sequence = visemeSequence(text);
@@ -417,7 +439,7 @@ function mrScheduleSpeech(project, origin, fromSeconds) {
     if (cue.at + cue.dur < from) continue;
     const at = origin + Math.max(0, cue.at - from);
     if (cue.at < from) continue;                 // a line already half-said is left alone
-    mrSpeakLine(cue.text, at, cue.profile, cue.rate, 1, cue.mode);
+    mrSpeakLine(cue.text, at, cue.profile, cue.rate, 1, cue.mode, cue.saying);
     spoken++;
     mrAudio.music.gain.setTargetAtTime(duck, Math.max(ctx.currentTime, at - 0.1), 0.05);
     mrAudio.music.gain.setTargetAtTime(1, at + cue.dur + 0.05, 0.2);
@@ -432,6 +454,21 @@ function mrTryVoice(project, name) {
   if (ctx.state === 'suspended') ctx.resume();
   const profile = voiceProfileFor(project, name);
   mrSpeakLine(name === MR_NARRATOR ? 'And so the long road turned towards home.' : `My name is ${name}. Listen, and I will tell you.`,
-    ctx.currentTime + 0.05, profile, profile.rate, 1, voiceMode(project));
+    ctx.currentTime + 0.05, profile, profile.rate, 1, voiceMode(project), sayingFor(project));
+  return true;
+}
+
+// Say one word out loud, for the "hear it" button beside a pronunciation fix. The word on
+// its own, said the way the reel would say it, is the only way to tell whether a
+// respelling worked.
+function mrTryWord(project, word, respelling) {
+  const ctx = mrAudioEnsure();
+  if (!ctx) return false;
+  if (ctx.state === 'suspended') ctx.resume();
+  const profile = voiceProfileFor(project, MR_NARRATOR);
+  const saying = respelling
+    ? (typeof sayingMap === 'function' ? sayingMap({ [word]: respelling }) : null)
+    : sayingFor(project);
+  mrSpeakLine(String(word || ''), ctx.currentTime + 0.05, profile, profile.rate, 1, voiceMode(project), saying);
   return true;
 }

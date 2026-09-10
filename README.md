@@ -592,6 +592,31 @@ Whose mouth moves on a *narrator's* line? Nobody's, when the beat has dialogue i
 narrator is not in the picture. A beat that is nothing but description would then have every
 mouth shut, so there the character marked as speaker reads it.
 
+### Fixing a line the reel got wrong
+
+Two things it can get wrong, and two lists to correct them with — both in the Sound tab,
+both ordinary undoable edits, both saved with the reel.
+
+**Who says what.** Which words are spoken aloud, and by whom, is worked out from the
+quotation marks and the speech verbs. It is right most of the time and wrong some of it,
+and a line in the wrong voice is the most obvious mistake a reel can make. The panel lists
+the selected beat line by line, each with the reel's own guess spelled out — *As written —
+Sage* — and a list of everyone who could say it instead, the narrator included. There is a
+▶ beside each line to hear it in the voice it would be said in. Overrides are stored
+against the beat by line number, so re-writing a beat's words drops them: they were answers
+to lines that no longer exist.
+
+**Say it like.** Names are where a synthesiser earns its reputation, and history is nothing
+but names. Write the word the way you would say it out loud — `ah-SHOW-ka`, `hat-SHEP-soot`,
+`CHUN-dra-goop-ta` — hyphens between the syllables, capitals on the stressed one. No
+phonetic notation: asking somebody making videos for children to type ARPABET is asking
+them to give up. Each syllable goes through the same letter-to-sound rules as everything
+else, which is exactly why it works — the rules are good at "show" and "ka" and bad at
+"Ashoka", so the fix is to hand them syllables they can manage. A handful of spellings that
+are sounds rather than words (`ah`, `oo`, `ee`, `uh`, `oy`, `er`…) are read as those sounds.
+A fix holds everywhere in the reel, for the characters and the narrator both, and ▶ says the
+word on its own so you can hear whether it worked.
+
 ## Sound effects
 
 Also synthesised, also from nothing: an oscillator and a burst of filtered noise per

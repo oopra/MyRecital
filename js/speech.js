@@ -389,11 +389,68 @@ function mrEntry(clean) {
   return entry;
 }
 
+// A word the reel has been told how to say, written the way anybody would write it to a
+// friend: "ah-SHOW-ka". Hyphens (or spaces) break it into syllables, and the syllable in
+// CAPITALS is the one that gets the stress. Nothing here is phonetic notation, because
+// asking somebody making a video for children to type ARPABET is asking them to give up.
+//
+// Every piece goes through the ordinary letter-to-sound rules, which is what makes the
+// respelling work at all: the rules are good at "show" and "ka" and bad at "Ashoka", so
+// the fix is to hand them syllables they can manage.
+// Sounds as people write them when they are writing a sound rather than a word. The
+// letter-to-sound rules would read "ah" as the word "ah" — a vowel and an H — because that
+// is what those letters do in English; in a respelling they are one open vowel.
+const MR_RESPELL = {
+  ah: 'AA', aa: 'AA', ar: 'AA R', oh: 'OW', ohh: 'OW', uh: 'AH', eh: 'EH', ih: 'IH',
+  ee: 'IY', ea: 'IY', oo: 'UW', ou: 'UW', ay: 'EY', ai: 'EY', eye: 'AY', ie: 'AY',
+  ow: 'AW', oy: 'OY', oi: 'OY', er: 'ER', ur: 'ER', or: 'AO R', aw: 'AO'
+};
+
+function mrSayAs(respelling) {
+  const pieces = String(respelling || '').split(/[\s-]+/).filter((piece) => /[a-z]/i.test(piece));
+  if (!pieces.length) return null;
+  // A piece in capitals is the stressed syllable. Somebody who types the whole word in
+  // capitals has not marked anything, so nothing is marked.
+  const shouted = pieces.filter((piece) => piece === piece.toUpperCase());
+  const marked = shouted.length === pieces.length ? -1 : pieces.findIndex((piece) => piece === piece.toUpperCase());
+  const phonemes = [];
+  let stress = null;
+  pieces.forEach((piece, i) => {
+    const clean = piece.toLowerCase().replace(/[^a-z']/g, '');
+    if (!clean) return;
+    const listed = MR_RESPELL[clean];
+    const sounds = listed ? listed.split(' ') : mrSpell(clean.replace(/([aeiou])h$/, '$1'));
+    if (!sounds.length) return;
+    if (i === marked) {
+      const vowel = sounds.findIndex((sound) => MR_VOWEL_SET.has(sound));
+      if (vowel >= 0) stress = phonemes.length + vowel;
+    }
+    for (const sound of sounds) phonemes.push(sound);
+  });
+  if (!phonemes.length) return null;
+  return { phonemes, stress };
+}
+
+// The reel's own list of fixes, as a lowercase lookup. Anything in here beats the
+// dictionary and the rules both, because it is somebody telling us we got it wrong.
+function sayingMap(table) {
+  if (!table) return null;
+  const out = new Map();
+  for (const key of Object.keys(table)) {
+    const clean = String(key || '').toLowerCase().replace(/[^a-z']/g, '');
+    const said = mrSayAs(table[key]);
+    if (clean && said) out.set(clean, said);
+  }
+  return out.size ? out : null;
+}
+
 // One word to sounds, and to the syllable it is said with. `stress` is null when the
 // dictionary has no opinion, which is most of the time — then the rules decide.
-function pronounce(word) {
+function pronounce(word, saying) {
   const clean = String(word || '').toLowerCase().replace(/[^a-z']/g, '');
   if (!clean) return { phonemes: [], stress: null, word: clean };
+  const fixed = saying && saying.get ? saying.get(clean) : null;
+  if (fixed) return { phonemes: fixed.phonemes, stress: fixed.stress, word: clean };
   const listed = mrEntry(clean);
   if (listed) return { phonemes: listed.phonemes, stress: listed.stress, word: clean };
 
@@ -418,8 +475,8 @@ function pronounce(word) {
   return { phonemes: mrSpell(clean), stress: null, word: clean };
 }
 
-function phonemesForWord(word) {
-  return pronounce(word).phonemes;
+function phonemesForWord(word, saying) {
+  return pronounce(word, saying).phonemes;
 }
 
 // The rules, for everything the dictionary has never heard of.
@@ -553,7 +610,7 @@ function mrStressIndex(word, phonemes) {
 
 // A whole line to phonemes, each carrying whether it is stressed, and with the pauses
 // punctuation asks for — a comma is not the same length as a full stop.
-function phonemeTokens(text) {
+function phonemeTokens(text, saying) {
   const out = [];
   const parts = String(text || '').split(/(\s+|[,;:.!?—-]+)/);
   for (const chunk of parts) {
@@ -565,7 +622,7 @@ function phonemeTokens(text) {
       else out.push({ p: '_', pause, stress: 0 });
       continue;
     }
-    const said = pronounce(chunk);
+    const said = pronounce(chunk, saying);
     const sounds = said.phonemes;
     if (!sounds.length) continue;
     if (out.length && out[out.length - 1].p !== '_') out.push({ p: '_', pause: 0.055, stress: 0 });
@@ -581,8 +638,8 @@ function phonemeTokens(text) {
   return out;
 }
 
-function phonemesFor(text) {
-  return phonemeTokens(text).map((token) => token.p);
+function phonemesFor(text, saying) {
+  return phonemeTokens(text, saying).map((token) => token.p);
 }
 
 // ---------------------------------------------------------------- sounds to sound
@@ -599,7 +656,7 @@ function mrTowardsSchwa(f, amount) {
 function speechPlan(text, opts) {
   const o = opts || {};
   const rate = o.rate || 1;
-  const tokens = o.tokens || phonemeTokens(text);
+  const tokens = o.tokens || phonemeTokens(text, o.saying);
   const question = /\?\s*$/.test(String(text || ''));
   const plan = [];
   let at = 0;
@@ -670,8 +727,8 @@ function speechPlan(text, opts) {
 }
 
 // How long a line takes to say, for laying lines out before any of them is scheduled.
-function speechPlanSeconds(text, rate) {
-  return speechPlan(text, { rate }).seconds;
+function speechPlanSeconds(text, rate, saying) {
+  return speechPlan(text, { rate, saying }).seconds;
 }
 
 // The mouth, straight from the sounds. This is what phonemes were always for: /m/ closes
@@ -720,10 +777,10 @@ const MR_FORMANT_BW = [80, 110, 170, 250];
 // Speak one line. A glottal buzz and a breath of noise through a cascade of four
 // resonators — the mouth — with a separate hiss path for the sounds made with air alone.
 // Everything is scheduled up front, like the score, so playback and recording agree.
-function mrSpeakWords(text, at, profile, rate, gainValue) {
+function mrSpeakWords(text, at, profile, rate, gainValue, saying) {
   const ctx = mrAudio.ctx;
   if (!ctx) return 0;
-  const plan = speechPlan(text, { rate });
+  const plan = speechPlan(text, { rate, saying });
   if (!plan.steps.length) return 0;
 
   const timbre = (typeof MR_TIMBRES !== 'undefined' && MR_TIMBRES[profile.timbre]) || {};

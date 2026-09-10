@@ -3421,6 +3421,125 @@ test('narration records one line per voice, each in that character’s voice', a
   assert.equal(r.herMouth, true, 'and it is her mouth that moves');
 });
 
+test('a name can be respelled the way a person would actually write it', async () => {
+  const r = await ev(() => {
+    const say = (word, respelling) => {
+      const said = pronounce(word, sayingMap({ [word]: respelling }));
+      return { p: said.phonemes.join(' '), stress: said.stress, at: said.phonemes[said.stress] };
+    };
+    return {
+      ashoka: say('Ashoka', 'ah-SHOW-ka'),
+      hatshepsut: say('Hatshepsut', 'hat-SHEP-soot'),
+      chandragupta: say('Chandragupta', 'CHUN-dra-goop-ta'),
+      shouted: say('Ashoka', 'AH-SHOW-KA'),
+      plain: pronounce('Ashoka').phonemes.join(' '),
+      junk: mrSayAs('   '),
+      // A word with a fix is said by the fix even in the middle of a sentence.
+      inLine: phonemesFor('Ashoka waited.', sayingMap({ Ashoka: 'ah-SHOW-ka' })).join(' ')
+    };
+  });
+  assert.equal(r.ashoka.p, 'AA SH OW K AX', 'the syllables are read as sounds, not as English spelling');
+  assert.equal(r.ashoka.at, 'OW', 'and the capitalised syllable is the stressed one');
+  assert.equal(r.hatshepsut.at, 'EH', `HAT-shep-sut stresses the shep (${r.hatshepsut.p})`);
+  assert.equal(r.chandragupta.at, 'AH', `and CHUN carries Chandragupta (${r.chandragupta.p})`);
+  assert.equal(r.shouted.stress, null, 'a word typed all in capitals marks nothing, so the rules decide');
+  assert.notEqual(r.plain, r.ashoka.p, 'the fix is a change, not a no-op');
+  assert.equal(r.junk, null, 'a respelling with no letters in it is not a pronunciation');
+  assert.ok(r.inLine.startsWith('AA SH OW K AX'), `the fix holds inside a sentence (${r.inLine})`);
+});
+
+test('a pronunciation fix reaches what the reel actually says', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Ashoka walked to the river.', { titleCard: false });
+    directProject(p);
+    p.voices = { enabled: true, mode: 'words', cast: {}, saying: {} };
+    const before = speechCuesFor(p);
+    const planBefore = speechPlan(before[0].text, { rate: 1, saying: before[0].saying });
+    p.voices.saying = { Ashoka: 'ah-SHOW-ka' };
+    const after = speechCuesFor(p);
+    const planAfter = speechPlan(after[0].text, { rate: 1, saying: after[0].saying });
+    const sounds = (plan) => plan.steps.filter((step) => step.type !== 'silence').map((step) => step.phoneme).join(' ');
+    // The stressed vowel is the one the ear hears as the accent, so check it moved too.
+    const accent = (plan) => {
+      const step = plan.steps.find((s) => s.stress === 1);
+      return step ? step.phoneme : null;
+    };
+    return {
+      before: sounds(planBefore), after: sounds(planAfter),
+      accentBefore: accent(planBefore), accentAfter: accent(planAfter),
+      carried: !!after[0].saying
+    };
+  });
+  assert.equal(r.carried, true, 'the cue carries the reel’s pronunciation list with it');
+  assert.notEqual(r.before, r.after, 'and the sounds it will make are different');
+  assert.ok(r.after.startsWith('AA SH OW K AX'), `the name is said as respelled (${r.after})`);
+  assert.equal(r.accentAfter, 'OW', `with the stress where the capitals put it (was ${r.accentBefore})`);
+});
+
+test('a line in the wrong voice can be given to the right one', async () => {
+  const r = await ev(() => {
+    const p = buildStoryboard('Ashoka and the sage sat by the fire. "You have walked a long way," said the sage.',
+      { titleCard: false });
+    directProject(p);
+    p.voices = { enabled: true, mode: 'words', cast: {} };
+    const scene = p.scenes[0];
+    const guessed = speechScheduleFor(p, scene).map((span) => span.who);
+    // Give every line to somebody else, then hand one of them back to the narrator.
+    scene.lineWho = guessed.map(() => 'Ashoka');
+    const fixed = speechScheduleFor(p, scene).map((span) => span.who);
+    scene.lineWho = guessed.map((who, i) => (i === guessed.length - 1 ? MR_NARRATOR : ''));
+    const narrated = speechScheduleFor(p, scene).map((span) => span.who);
+    // The mouth that moves is the one whose line it now is.
+    scene.lineWho = guessed.map(() => 'Ashoka');
+    const spans = speechScheduleFor(p, scene);
+    const last = spans[spans.length - 1];
+    const mid = last.at + last.dur / 2;
+    const mouths = scene.stage.actors.map((actor) => ({ name: actor.name, open: !!spokenMouthFor(p, scene, actor, mid) }));
+    return { guessed, fixed, narrated, mouths, lines: guessed.length };
+  });
+  assert.ok(r.lines >= 2, 'the beat is more than one line');
+  assert.ok(r.guessed.some((who) => who !== 'Ashoka'), `the reel guessed somebody else (${r.guessed.join(', ')})`);
+  assert.deepEqual(r.fixed, r.fixed.map(() => 'Ashoka'), 'naming a speaker gives them the line');
+  assert.equal(r.narrated[r.narrated.length - 1], 'Narrator', 'and a line can be handed back to the narrator');
+  assert.equal(r.narrated[0], r.guessed[0], 'a line left alone keeps whoever the reel picked');
+  const talking = r.mouths.filter((mouth) => mouth.open).map((mouth) => mouth.name);
+  assert.deepEqual(talking, ['Ashoka'], `the corrected speaker is the one whose mouth moves (${JSON.stringify(r.mouths)})`);
+});
+
+test('the line and pronunciation fixes are ordinary undoable edits', async () => {
+  const r = await ev(() => {
+    document.getElementById('storyText').value =
+      'Ashoka and the Sage\n\nAshoka and the sage sat by the fire.\n\n"You have walked a long way," said the sage.';
+    document.getElementById('buildBtn').click();
+    document.getElementById('directAnimateBtn').click();
+    const spoken = ed.project.scenes.find((s) => s.kind !== 'title' && /"/.test(s.text));
+    selectScene(spoken.id, true);
+    const rows = document.getElementById('lineList').querySelectorAll('.cast-row');
+    const first = rows[0].querySelector('select');
+    const options = Array.from(first.options).map((o) => o.textContent);
+    first.value = 'Ashoka';
+    first.dispatchEvent(new Event('change'));
+    const assigned = (ed.project.scenes.find((s) => s.id === spoken.id).lineWho || [])[0];
+    document.getElementById('undoBtn').click();
+    const undone = (ed.project.scenes.find((s) => s.id === spoken.id).lineWho || [])[0];
+
+    document.getElementById('sayWord').value = 'Ashoka';
+    document.getElementById('sayAs').value = 'ah-SHOW-ka';
+    document.getElementById('sayAddBtn').click();
+    const saying = Object.assign({}, ed.project.voices.saying);
+    const listed = document.getElementById('sayList').querySelectorAll('.cast-row').length;
+    document.getElementById('undoBtn').click();
+    return { rows: rows.length, options, assigned, undone, saying, listed, after: Object.keys(ed.project.voices.saying || {}).length };
+  });
+  assert.ok(r.rows >= 2, 'the beat is listed line by line');
+  assert.ok(r.options[0].startsWith('As written'), 'the first choice is the reel’s own guess, and it says what that was');
+  assert.equal(r.assigned, 'Ashoka', 'choosing a name assigns the line');
+  assert.ok(!r.undone, 'and undo puts the guess back');
+  assert.equal(r.saying.Ashoka, 'ah-SHOW-ka', 'a pronunciation fix is stored as written');
+  assert.equal(r.listed, 1, 'and listed where it can be heard and changed');
+  assert.equal(r.after, 0, 'undo removes it again');
+});
+
 test('the reel reloads from local storage on the next visit', async () => {
   await ev(() => {
     document.getElementById('storyText').value = 'Persisted Reel\n\nOne line of story that should come back.';

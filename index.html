@@ -426,6 +426,24 @@
         gets its own pitch and timbre from its age — change either below.</p>
       <div id="voiceList" class="cast-list"></div>
 
+      <h3 class="pane-subtitle">Who says what</h3>
+      <p class="hint">Which words are said out loud, and by whom, is worked out from the quotation
+        marks and the speech verbs. Where that comes out wrong, correct it here — these are the
+        lines of the beat selected in the storyboard, in the order they are spoken.</p>
+      <div id="lineList" class="cast-list"></div>
+      <p id="lineHint" class="hint"></p>
+
+      <h3 class="pane-subtitle">Say it like</h3>
+      <p class="hint">Names are where a synthesiser earns its reputation. Write the word the way you
+        would say it out loud — <b>ah-SHOW-ka</b> — hyphens between the syllables and the stressed
+        one in capitals. It holds everywhere in the reel, for the characters and the narrator both.</p>
+      <div class="field-row">
+        <input id="sayWord" type="text" placeholder="Ashoka" aria-label="Word">
+        <input id="sayAs" type="text" placeholder="ah-SHOW-ka" aria-label="Said like">
+        <button id="sayAddBtn" class="btn">Add</button>
+      </div>
+      <div id="sayList" class="cast-list"></div>
+
       <h3 class="pane-subtitle">Score</h3>
       <label class="check"><input type="checkbox" id="audioEnabled" checked> Generate a score</label>
       <p class="hint">The score is synthesised from the scene moods — no audio files, and it re-writes
